@@ -1,0 +1,3 @@
+name,rho_kg_m3,cp_kj_kgk,mu_pa_s,status,note
+Water-based reference,992.2,4.179,0.000653,Reference only,"Thermophysical baseline; final loop chemistry must be OEM/supplier approved."
+PG30 sensitivity fluid,1029.85,3.841,0.0016295,Sensitivity only,"Representative 30 vol% PG property set at 40°C; not an OEM approval claim."
