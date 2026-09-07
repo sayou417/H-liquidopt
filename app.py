@@ -897,34 +897,100 @@ phase = st.radio(
     horizontal=True,
     key="design_phase",
 )
+# =========================================
+# Persistent Sidebar State Helpers
+# =========================================
+def restore_sidebar_widget(
+    widget_key,
+    project_key,
+    default_value,
+):
+    """
+    Restore a temporary widget value from
+    the persistent project state.
+    """
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = (
+            st.session_state.get(
+                project_key,
+                default_value,
+            )
+        )
 
+
+def sync_sidebar_widget(
+    widget_key,
+    project_key,
+    from_phase,
+):
+    """
+    Save a temporary widget value into the
+    persistent project state.
+
+    If an engineering input changes,
+    downstream approvals are reset.
+    """
+    old_value = st.session_state.get(
+        project_key
+    )
+
+    new_value = st.session_state[
+        widget_key
+    ]
+
+    st.session_state[
+        project_key
+    ] = new_value
+
+    if old_value != new_value:
+        reset_downstream(
+            from_phase
+        )
 with st.sidebar:
     st.header("H-LiquidOpt")
-    st.caption(f"Design workflow · Phase {phase} of 5")
+    st.caption(
+        f"Design workflow · Phase {phase} of 5"
+    )
 
-    # -------------------------
+    # =========================================
     # PHASE 1
-    # -------------------------
+    # =========================================
     if phase == 1:
         st.subheader("Rack / IT Inputs")
 
         st.caption(
-            "Upload the project rack dataset or use the built-in demo case."
+            "Upload the project rack dataset "
+            "or use the built-in demo case."
         )
 
-        template = pd.DataFrame({
-            "rack_id": ["R001", "R002"],
-            "pod": ["A", "A"],
-            "rack_type": ["Compute", "Support"],
-            "it_power_kw": [120.0, 20.0],
-            "hcr": [0.85, 0.0],
-            "row": [1, 1],
-            "col": [1, 2],
-        })
+        template = pd.DataFrame(
+            {
+                "rack_id": ["R001", "R002"],
+                "pod": ["A", "A"],
+                "rack_type": [
+                    "Compute",
+                    "Support",
+                ],
+                "it_power_kw": [
+                    120.0,
+                    20.0,
+                ],
+                "hcr": [
+                    0.85,
+                    0.0,
+                ],
+                "row": [1, 1],
+                "col": [1, 2],
+            }
+        )
 
         st.download_button(
             "Download Rack CSV template",
-            template.to_csv(index=False).encode("utf-8-sig"),
+            template.to_csv(
+                index=False
+            ).encode(
+                "utf-8-sig"
+            ),
             "hliquidopt_rack_template.csv",
             "text/csv",
             use_container_width=True,
@@ -933,102 +999,194 @@ with st.sidebar:
         uploaded = st.file_uploader(
             "Upload Rack CSV",
             type=["csv"],
-            key="rack_csv_upload",
+            key="phase1_rack_csv_upload",
         )
 
         if uploaded is not None:
-            new_racks = pd.read_csv(uploaded)
+            new_racks = pd.read_csv(
+                uploaded
+            )
 
-            if not new_racks.equals(st.session_state.racks):
-                st.session_state.racks = new_racks
+            # Keep the uploaded file identity
+            st.session_state[
+                "phase1_dataset_name"
+            ] = uploaded.name
+
+            if not new_racks.equals(
+                st.session_state.racks
+            ):
+                st.session_state.racks = (
+                    new_racks
+                )
+
                 reset_downstream(1)
 
         if st.button(
             "Restore 48-rack demo",
+            key="phase1_restore_demo",
             use_container_width=True,
         ):
-            st.session_state.racks = load_default_racks()
+            st.session_state.racks = (
+                load_default_racks()
+            )
+
+            st.session_state[
+                "phase1_dataset_name"
+            ] = "Built-in 48-rack demo"
+
             reset_downstream(1)
+
             st.rerun()
+
+        current_dataset_name = (
+            st.session_state.get(
+                "phase1_dataset_name",
+                "Built-in 48-rack demo",
+            )
+        )
+
+        st.info(
+            f"Current dataset · "
+            f"{current_dataset_name}\n\n"
+            f"{len(st.session_state.racks)} "
+            f"rack records loaded"
+        )
 
         st.divider()
 
         st.caption(
-            "Phase 1 only requires rack and spatial data. "
-            "Hydraulic parameters are entered later."
+            "The file uploader itself may appear empty "
+            "after leaving this phase, but the loaded "
+            "rack dataset remains stored in the project session."
         )
 
-    # -------------------------
+    # =========================================
     # PHASE 2
-    # -------------------------
+    # =========================================
     elif phase == 2:
         st.subheader("TCS / CDU Inputs")
+
+        # Restore temporary widget state
+        restore_sidebar_widget(
+            "_phase2_cdu_capacity",
+            "cdu_capacity",
+            2.0,
+        )
+
+        restore_sidebar_widget(
+            "_phase2_redundancy",
+            "redundancy",
+            "N+1 shared standby",
+        )
 
         st.number_input(
             "CDU Candidate Capacity (MW/unit)",
             min_value=0.1,
             step=0.1,
-            key="cdu_capacity",
+            key="_phase2_cdu_capacity",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase2_cdu_capacity",
+                "cdu_capacity",
+                2,
+            ),
         )
+
+        redundancy_options = [
+            "N+1 shared standby",
+            "N",
+            "2N",
+        ]
+
+        # Safety check for an old/invalid state
+        if (
+            st.session_state[
+                "_phase2_redundancy"
+            ]
+            not in redundancy_options
+        ):
+            st.session_state[
+                "_phase2_redundancy"
+            ] = "N+1 shared standby"
+
+            st.session_state[
+                "redundancy"
+            ] = "N+1 shared standby"
 
         st.selectbox(
             "Redundancy",
-            [
-                "N+1 shared standby",
-                "N",
-                "2N",
-            ],
-            key="redundancy",
+            redundancy_options,
+            key="_phase2_redundancy",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase2_redundancy",
+                "redundancy",
+                2,
+            ),
         )
 
         st.divider()
 
         st.caption(
-            "These values are used to screen TCS/CDU topology candidates."
+            "These values are used to screen "
+            "TCS/CDU topology candidates."
         )
 
-    # -------------------------
+    # =========================================
     # PHASE 3
-    # -------------------------
+    # =========================================
     elif phase == 3:
         st.subheader("Coolant Conditions")
 
-        supply_input = st.number_input(
-            "TCS Supply Temperature (°C)",
-            value=float(
-                st.session_state.get(
-                    "supply_t",
-                    35.0,
-                )
-            ),
-            step=1.0,
-            key="phase3_supply_widget",
+        restore_sidebar_widget(
+            "_phase3_supply_t",
+            "supply_t",
+            35.0,
         )
 
-        return_input = st.number_input(
+        restore_sidebar_widget(
+            "_phase3_return_t",
+            "return_t",
+            45.0,
+        )
+
+        st.number_input(
+            "TCS Supply Temperature (°C)",
+            step=1.0,
+            key="_phase3_supply_t",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase3_supply_t",
+                "supply_t",
+                3,
+            ),
+        )
+
+        st.number_input(
             "TCS Return Temperature (°C)",
-            value=float(
+            step=1.0,
+            key="_phase3_return_t",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase3_return_t",
+                "return_t",
+                3,
+            ),
+        )
+
+        current_dt = (
+            float(
                 st.session_state.get(
                     "return_t",
                     45.0,
                 )
-            ),
-            step=1.0,
-            key="phase3_return_widget",
-        )
-
-        # Persistent project values
-        st.session_state["supply_t"] = float(
-            supply_input
-        )
-
-        st.session_state["return_t"] = float(
-            return_input
-        )
-
-        current_dt = (
-            st.session_state["return_t"]
-            - st.session_state["supply_t"]
+            )
+            - float(
+                st.session_state.get(
+                    "supply_t",
+                    35.0,
+                )
+            )
         )
 
         st.metric(
@@ -1038,97 +1196,214 @@ with st.sidebar:
 
         if current_dt <= 0:
             st.error(
-                "Return temperature must be greater than supply temperature."
+                "Return temperature must be "
+                "greater than supply temperature."
             )
 
         st.divider()
 
         st.caption(
-            "Coolant selection remains subject to OEM and supplier validation."
+            "Coolant selection remains subject "
+            "to OEM and supplier validation."
         )
 
-    # -------------------------
+    # =========================================
     # PHASE 4
-    # -------------------------
+    # =========================================
     elif phase == 4:
         st.subheader("Hydraulic Inputs")
 
-        st.markdown("**Pipe geometry**")
+        # -------------------------------------
+        # Restore persistent values
+        # -------------------------------------
+        restore_sidebar_widget(
+            "_phase4_common_d",
+            "common_d",
+            0.2027,
+        )
+
+        restore_sidebar_widget(
+            "_phase4_row_d",
+            "row_d",
+            0.1541,
+        )
+
+        restore_sidebar_widget(
+            "_phase4_branch_d",
+            "branch_d",
+            0.0525,
+        )
+
+        restore_sidebar_widget(
+            "_phase4_common_l",
+            "common_l",
+            20.0,
+        )
+
+        restore_sidebar_widget(
+            "_phase4_row_l",
+            "row_l",
+            12.0,
+        )
+
+        restore_sidebar_widget(
+            "_phase4_branch_l",
+            "branch_l",
+            6.0,
+        )
+
+        restore_sidebar_widget(
+            "_phase4_rack_dp",
+            "rack_dp",
+            120.0,
+        )
+
+        # -------------------------------------
+        # Pipe geometry
+        # -------------------------------------
+        st.markdown(
+            "**Pipe geometry**"
+        )
 
         st.number_input(
             "Common pipe ID (m)",
             min_value=0.001,
             format="%.4f",
-            key="common_d",
+            key="_phase4_common_d",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase4_common_d",
+                "common_d",
+                4,
+            ),
         )
 
         st.number_input(
             "Row header ID (m)",
             min_value=0.001,
             format="%.4f",
-            key="row_d",
+            key="_phase4_row_d",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase4_row_d",
+                "row_d",
+                4,
+            ),
         )
 
         st.number_input(
             "Rack branch ID (m)",
             min_value=0.001,
             format="%.4f",
-            key="branch_d",
+            key="_phase4_branch_d",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase4_branch_d",
+                "branch_d",
+                4,
+            ),
         )
 
-        st.markdown("**Equivalent supply + return length**")
+        # -------------------------------------
+        # Equivalent lengths
+        # -------------------------------------
+        st.markdown(
+            "**Equivalent supply + return length**"
+        )
 
         st.number_input(
             "Common pipe length (m)",
             min_value=0.0,
             step=1.0,
-            key="common_l",
+            key="_phase4_common_l",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase4_common_l",
+                "common_l",
+                4,
+            ),
         )
 
         st.number_input(
             "Row header length (m)",
             min_value=0.0,
             step=1.0,
-            key="row_l",
+            key="_phase4_row_l",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase4_row_l",
+                "row_l",
+                4,
+            ),
         )
 
         st.number_input(
             "Rack branch length (m)",
             min_value=0.0,
             step=1.0,
-            key="branch_l",
+            key="_phase4_branch_l",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase4_branch_l",
+                "branch_l",
+                4,
+            ),
         )
 
         st.divider()
 
+        # -------------------------------------
+        # Rack pressure-drop assumption
+        # -------------------------------------
         st.number_input(
             "Synthetic rack ΔP reference (kPa)",
             min_value=0.0,
             step=5.0,
-            key="rack_dp",
+            key="_phase4_rack_dp",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase4_rack_dp",
+                "rack_dp",
+                4,
+            ),
             help=(
                 "PoC placeholder only. "
-                "Final engineering use requires an OEM pressure-flow curve."
+                "Final engineering use requires "
+                "an OEM pressure-flow curve."
             ),
         )
 
         st.warning(
-            "Rack ΔP is currently an ASSUMPTION used for prototype sensitivity."
+            "Rack ΔP is currently an ASSUMPTION "
+            "used for prototype sensitivity."
         )
 
-    # -------------------------
+    # =========================================
     # PHASE 5
-    # -------------------------
+    # =========================================
     else:
         st.subheader("Final Review")
 
         st.caption(
-            "No new engineering inputs are required in this phase."
+            "No new engineering inputs "
+            "are required in this phase."
+        )
+
+        approved_count = sum(
+            bool(
+                st.session_state.approved[p]
+            )
+            for p in [
+                1,
+                2,
+                3,
+                4,
+            ]
         )
 
         st.metric(
             "Approved phases",
-            f"{sum(bool(st.session_state.approved[p]) for p in [1,2,3,4])} / 4",
+            f"{approved_count} / 4",
         )
 
 # Values persist even when their input widgets are hidden
