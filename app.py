@@ -1374,13 +1374,168 @@ elif phase == 2:
         horizontal=True,
         key="phase2_topology_choice",
     )
-    st.text_area("Engineer note", key="phase2_note", placeholder="Example: prioritize pod isolation and maintenance access.")
-    if (pods["CDU loading %"] > 100).any() and choice.startswith("One CDU per Pod"):
-        st.error("At least one pod exceeds one candidate CDU's nominal capacity. Increase capacity, split the pod, or choose another topology.")
-    if st.button("✓ Approve Phase 2 candidate", type="primary"):
+        # -----------------------------------
+    # 2C. ENGINEER REVIEW
+    # -----------------------------------
+    st.divider()
+
+    st.markdown("### 2C · Engineer Review")
+
+    r1, r2 = st.columns([1, 4])
+
+    with r1:
+        render_tag("REVIEW REQUIRED", "review")
+
+    with r2:
+        st.write(
+            "CDU 용량 적합성, redundancy 구성, 유지보수성과 "
+            "배관 topology 검토사항을 확인한 후 후보안을 승인합니다."
+        )
+
+    # -----------------------------------
+    # Redundancy planning basis
+    # -----------------------------------
+    st.markdown("#### Redundancy Planning Basis")
+
+    if "N+1" in redundancy:
+        standby_a = 1
+        standby_b = 1
+        standby_c = 1
+
+    elif "2N" in redundancy:
+        standby_a = pod_duty_units
+        standby_b = central_duty_units
+        standby_c = row_count
+
+    else:
+        standby_a = 0
+        standby_b = 0
+        standby_c = 0
+
+    redundancy_summary = pd.DataFrame(
+        [
+            {
+                "Candidate": "A · Pod-dedicated",
+                "Duty Units": pod_duty_units,
+                "Standby Basis": standby_a,
+                "Installed Units": pod_duty_units + standby_a,
+            },
+            {
+                "Candidate": "B · Central Plant",
+                "Duty Units": central_duty_units,
+                "Standby Basis": standby_b,
+                "Installed Units": central_duty_units + standby_b,
+            },
+            {
+                "Candidate": "C · In-row",
+                "Duty Units": row_count,
+                "Standby Basis": standby_c,
+                "Installed Units": row_count + standby_c,
+            },
+        ]
+    )
+
+    st.dataframe(
+        redundancy_summary,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.caption(
+        f"현재 redundancy 입력조건: {redundancy}. "
+        "본 수량은 기본설계 단계의 개념적 설비 구성으로, "
+        "실제 CDU redundancy는 배관 격리, 공통부 고장모드, "
+        "제어방식 및 유지보수 전략 검토 후 확정합니다."
+    )
+
+    # -----------------------------------
+    # Selected candidate screening
+    # -----------------------------------
+    if choice.startswith("A"):
+        selected_capacity_ok = pod_capacity_ok
+
+        if not pod_capacity_ok:
+            st.error(
+                "선택한 Pod-dedicated 구성에서 하나 이상의 Pod가 "
+                "단일 CDU 정격용량을 초과합니다. CDU 용량 증가 또는 "
+                "Pod 분할이 필요합니다."
+            )
+
+    elif choice.startswith("B"):
+        selected_capacity_ok = True
+
+        st.info(
+            "Central CDU Plant는 총 부하 기준 aggregate capacity를 "
+            "충족합니다. 실제 적용 전 Hydraulic balancing과 "
+            "공통부 redundancy 검토가 필요합니다."
+        )
+
+    else:
+        selected_capacity_ok = row_capacity_ok
+
+        if not row_capacity_ok:
+            st.warning(
+                "하나 이상의 Row 부하가 단일 후보 CDU 용량을 초과합니다. "
+                "Row grouping을 세분화하거나 CDU 용량을 조정해야 합니다."
+            )
+
+    # -----------------------------------
+    # Engineer verification
+    # -----------------------------------
+    check_capacity = st.checkbox(
+        "선택 후보의 CDU 용량 및 Loading을 확인했습니다.",
+        key="phase2_check_capacity",
+    )
+
+    check_redundancy = st.checkbox(
+        "Redundancy 구성과 Standby 가정을 확인했습니다.",
+        key="phase2_check_redundancy",
+    )
+
+    check_layout = st.checkbox(
+        "배관 Routing, 유지보수성 및 공간 제약은 후속 상세검토가 필요함을 확인했습니다.",
+        key="phase2_check_layout",
+    )
+
+    phase2_note = st.text_area(
+        "Engineer note",
+        key="phase2_note",
+        placeholder=(
+            "예: Pod 단위 격리를 우선하여 Candidate A를 선정. "
+            "Phase 4에서 배관 압력손실 및 CDU 운전조건 추가 검토."
+        ),
+    )
+
+    ready_phase2 = (
+        check_capacity
+        and check_redundancy
+        and check_layout
+        and selected_capacity_ok
+    )
+
+    if st.button(
+        "✓ Approve Phase 2 Candidate",
+        type="primary",
+        disabled=not ready_phase2,
+        use_container_width=True,
+    ):
         st.session_state.topology_choice = choice
+        st.session_state.phase2_cdu_capacity = cdu_capacity
+        st.session_state.phase2_redundancy = redundancy
+        st.session_state.phase2_pods = pods.copy()
+
         st.session_state.approved[2] = True
-        st.success("Phase 2 candidate saved.")
+
+        st.success(
+            f"Phase 2 approved: {choice}. "
+            "승인된 TCS / CDU 설계조건이 다음 Phase로 전달됩니다."
+        )
+
+    if st.session_state.approved[2]:
+        st.success(
+            f"✓ Phase 2 Engineer Review Approved · "
+            f"{st.session_state.get('topology_choice', choice)}"
+        )
 
 elif phase == 3:
     st.subheader("Phase 3 · Coolant & Material Candidate Review")
