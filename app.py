@@ -617,18 +617,7 @@ if phase == 1:
         ].copy()
 
         active_racks = detailed_racks
-        st.markdown("#### Generated Rack Design Input")
-
-        st.dataframe(
-            detailed_racks,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.caption(
-            "장비 구성으로부터 생성된 Rack-level 설계 입력값입니다. "
-            "이 데이터가 이후 Liquid/Air Heat Load 계산에 사용됩니다."
-        )
+       
     c1, c2 = st.columns([1, 4])
 
     with c1:
@@ -684,34 +673,52 @@ if phase == 1:
 
     st.markdown("#### Rack Configuration")
 
-    st.info(
-        "표의 값을 수정하면 Phase 1 계산 결과가 즉시 갱신됩니다."
-    )
+    if input_mode == "Quick Rack Input":
 
-    edited_racks = st.data_editor(
-        st.session_state.racks,
-        use_container_width=True,
-        num_rows="dynamic",
-        column_config={
-            "hcr": st.column_config.NumberColumn(
-                "HCR",
-                min_value=0.0,
-                max_value=1.0,
-                step=0.01,
-                format="%.2f",
-            ),
-            "it_power_kw": st.column_config.NumberColumn(
-                "IT Power (kW)",
-                min_value=0.0,
-                step=5.0,
-            ),
-        },
-        key="rack_editor",
-    )
+        st.info(
+            "Quick Input에서는 Rack-level 값을 직접 수정할 수 있습니다. "
+            "표의 값을 수정하면 Phase 1 계산 결과가 즉시 갱신됩니다."
+        )
 
-    if not edited_racks.equals(st.session_state.racks):
-        st.session_state.racks = edited_racks
-        reset_downstream(1)
+        edited_racks = st.data_editor(
+            st.session_state.racks,
+            use_container_width=True,
+            num_rows="dynamic",
+            column_config={
+                "hcr": st.column_config.NumberColumn(
+                    "HCR",
+                    min_value=0.0,
+                    max_value=1.0,
+                    step=0.01,
+                    format="%.2f",
+                ),
+                "it_power_kw": st.column_config.NumberColumn(
+                    "IT Power (kW)",
+                    min_value=0.0,
+                    step=5.0,
+                ),
+            },
+            key="rack_editor_quick",
+        )
+
+        if not edited_racks.equals(st.session_state.racks):
+            st.session_state.racks = edited_racks
+            reset_downstream(1)
+
+    else:
+
+        st.info(
+            "Detailed Equipment Input의 장비 구성으로부터 자동 생성된 "
+            "Rack-level 설계 데이터입니다. Rack Power는 직접 입력하지 않습니다."
+        )
+
+        edited_racks = active_racks.copy()
+
+        st.dataframe(
+            edited_racks,
+            use_container_width=True,
+            hide_index=True,
+        )
 
     errors = validate_racks(edited_racks)
 
