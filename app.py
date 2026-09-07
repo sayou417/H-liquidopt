@@ -1187,19 +1187,51 @@ elif phase == 2:
     # -----------------------------------
     # Candidate A · Pod-dedicated
     # -----------------------------------
-    pod_count = len(pods)
+    import math
 
-    pod_capacity_ok = (
-        pods["liquid_load_kw"] <= cdu_capacity * 1000
-    ).all()
+    cdu_capacity_kw = cdu_capacity * 1000
 
-    pod_max_loading = (
-        pods["liquid_load_kw"].max()
-        / (cdu_capacity * 1000)
-        * 100
+    pod_sizing = pods.copy()
+
+    # 각 Pod 부하를 처리하기 위해 필요한 Duty CDU 수
+    pod_sizing["Required Duty CDU"] = pod_sizing[
+        "liquid_load_kw"
+    ].apply(
+        lambda load: (
+            math.ceil(load / cdu_capacity_kw)
+            if load > 0
+            else 0
+        )
     )
 
-    pod_duty_units = pod_count
+    # 동일 Pod 내 Duty CDU들이 부하를 균등 분담한다고 가정한 Loading
+    pod_sizing["Allocated CDU Loading %"] = pod_sizing.apply(
+        lambda row: (
+            row["liquid_load_kw"]
+            / (
+                row["Required Duty CDU"]
+                * cdu_capacity_kw
+            )
+            * 100
+            if row["Required Duty CDU"] > 0
+            else 0.0
+        ),
+        axis=1,
+    )
+
+    pod_duty_units = int(
+        pod_sizing["Required Duty CDU"].sum()
+    )
+
+    pod_max_loading = (
+        pod_sizing["Allocated CDU Loading %"].max()
+    )
+
+    pod_multi_cdu_required = (
+        pod_sizing["Required Duty CDU"] > 1
+    ).any()
+
+    pod_capacity_ok = True
 
     # -----------------------------------
     # Candidate B · Central CDU plant
@@ -1227,22 +1259,53 @@ elif phase == 2:
 
         row_count = len(row_summary)
 
-        row_capacity_ok = (
-            row_summary["liquid_load_kw"]
-            <= cdu_capacity * 1000
-        ).all()
+        row_summary["Required Duty CDU"] = row_summary[
+            "liquid_load_kw"
+        ].apply(
+            lambda load: (
+                math.ceil(load / cdu_capacity_kw)
+                if load > 0
+                else 0
+            )
+        )
+
+        row_summary["Allocated CDU Loading %"] = (
+            row_summary.apply(
+                lambda row: (
+                    row["liquid_load_kw"]
+                    / (
+                        row["Required Duty CDU"]
+                        * cdu_capacity_kw
+                    )
+                    * 100
+                    if row["Required Duty CDU"] > 0
+                    else 0.0
+                ),
+                axis=1,
+            )
+        )
+
+        row_duty_units = int(
+            row_summary["Required Duty CDU"].sum()
+        )
 
         row_max_loading = (
-            row_summary["liquid_load_kw"].max()
-            / (cdu_capacity * 1000)
-            * 100
+            row_summary["Allocated CDU Loading %"].max()
         )
+
+        row_multi_cdu_required = (
+            row_summary["Required Duty CDU"] > 1
+        ).any()
+
+        row_capacity_ok = True
 
     else:
         row_summary = pd.DataFrame()
         row_count = 0
+        row_duty_units = 0
         row_capacity_ok = False
         row_max_loading = 0.0
+        row_multi_cdu_required = False
 
     # -----------------------------------
     # Candidate cards
@@ -1252,20 +1315,35 @@ elif phase == 2:
     with card_a:
         st.markdown("#### A · Pod-dedicated")
 
-        if pod_capacity_ok:
-            st.success("Capacity screen · PASS")
-        else:
-            st.error("Capacity screen · REVIEW")
+        st.success("Capacity sizing · FEASIBLE")
 
         st.metric(
-            "Duty CDU Units",
+            "Total Duty CDU Units",
             f"{pod_duty_units}",
         )
 
         st.metric(
-            "Max CDU Loading",
+            "Max Allocated Loading",
             f"{pod_max_loading:.1f}%",
         )
+
+        if pod_multi_cdu_required:
+            st.warning(
+                "하나 이상의 Pod에서 2대 이상의 Duty CDU가 필요합니다."
+            )
+        with st.expander("Pod-level CDU sizing"):
+            st.dataframe(
+                pod_sizing[
+                    [
+                        "pod",
+                        "liquid_load_kw",
+                        "Required Duty CDU",
+                        "Allocated CDU Loading %",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )    
 
         st.markdown(
             """
@@ -1323,19 +1401,32 @@ elif phase == 2:
         st.markdown("#### C · In-row Grouping")
 
         if row_capacity_ok:
-            st.success("Capacity screen · PASS")
+            st.success("Capacity sizing · FEASIBLE")
         else:
-            st.warning("Capacity screen · REVIEW")
+            st.warning("Row data · REVIEW REQUIRED")
 
         st.metric(
-            "Candidate Row Groups",
-            f"{row_count}",
+            "Total Duty CDU Units",
+            f"{row_duty_units}",
         )
 
         st.metric(
-            "Max Row Loading",
+            "Max Allocated Loading",
             f"{row_max_loading:.1f}%",
         )
+
+        if row_multi_cdu_required:
+            st.warning(
+                "하나 이상의 Row Group에서 2대 이상의 Duty CDU가 필요합니다."
+            )
+
+        if not row_summary.empty:
+            with st.expander("Row-level CDU sizing"):
+                st.dataframe(
+                    row_summary,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
         st.markdown(
             """
@@ -1405,7 +1496,7 @@ elif phase == 2:
     elif "2N" in redundancy:
         standby_a = pod_duty_units
         standby_b = central_duty_units
-        standby_c = row_count
+        standby_c = row_duty_units
 
     else:
         standby_a = 0
@@ -1428,7 +1519,7 @@ elif phase == 2:
             },
             {
                 "Candidate": "C · In-row",
-                "Duty Units": row_count,
+                "Duty Units": row_duty_units,
                 "Standby Basis": standby_c,
                 "Installed Units": row_count + standby_c,
             },
@@ -1454,11 +1545,11 @@ elif phase == 2:
     if choice.startswith("A"):
         selected_capacity_ok = pod_capacity_ok
 
-        if not pod_capacity_ok:
-            st.error(
-                "선택한 Pod-dedicated 구성에서 하나 이상의 Pod가 "
-                "단일 CDU 정격용량을 초과합니다. CDU 용량 증가 또는 "
-                "Pod 분할이 필요합니다."
+        if pod_multi_cdu_required:
+            st.info(
+                "선택한 Pod-dedicated 구성에서는 일부 Pod에 "
+                "복수 Duty CDU가 필요합니다. 본 단계에서는 동일 Pod 내 "
+                "CDU 간 부하 균등분담을 가정합니다."
             )
 
     elif choice.startswith("B"):
@@ -1473,10 +1564,11 @@ elif phase == 2:
     else:
         selected_capacity_ok = row_capacity_ok
 
-        if not row_capacity_ok:
-            st.warning(
-                "하나 이상의 Row 부하가 단일 후보 CDU 용량을 초과합니다. "
-                "Row grouping을 세분화하거나 CDU 용량을 조정해야 합니다."
+        if row_multi_cdu_required:
+            st.info(
+                "선택한 In-row 구성에서는 일부 Row Group에 "
+                "복수 Duty CDU가 필요합니다. 실제 분기 및 부하분담 방식은 "
+                "후속 Hydraulic 검토에서 확인해야 합니다."
             )
 
     # -----------------------------------
