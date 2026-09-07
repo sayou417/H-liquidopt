@@ -28,8 +28,6 @@ st.set_page_config(
     layout="wide",
 )
 
-st.warning("DEPLOY TEST · 2026-09-07")
-
 # =========================================
 # TEMPORARY OPENAI CONNECTION TEST
 # =========================================
