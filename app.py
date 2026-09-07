@@ -617,7 +617,7 @@ if phase == 1:
         ].copy()
 
         active_racks = detailed_racks
-         st.markdown("#### Generated Rack Design Input")
+        st.markdown("#### Generated Rack Design Input")
 
         st.dataframe(
             detailed_racks,
