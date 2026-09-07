@@ -1064,7 +1064,6 @@ if phase == 1:
             "Phase 1 approved. "
             "승인된 Rack Load Model이 Phase 2로 전달되었습니다."
         )
-        )
 
     if st.session_state.approved[1]:
         st.success(
