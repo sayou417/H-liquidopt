@@ -219,7 +219,7 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                     with st.spinner(
                         "AI is extracting engineering specification candidates..."
                     ):
-                    result = extract_specification(
+                        result = extract_specification(
                             file_bytes=uploaded_spec.getvalue(),
                             filename=uploaded_spec.name,
                             api_key=api_key,
