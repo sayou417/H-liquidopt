@@ -445,25 +445,26 @@ if phase == 1:
     # -----------------------------------
     st.markdown("### 1A · Input Data")
     input_mode = st.radio(
-    "Rack input mode",
-    [
-        "Quick Rack Input",
-        "Detailed Equipment Input",
-    ],
-    horizontal=True,
-    key="rack_input_mode",
-)
+        "Rack input mode",
+        [
+            "Quick Rack Input",
+            "Detailed Equipment Input",
+        ],
+        horizontal=True,
+        key="rack_input_mode",
+    )
 
-if input_mode == "Quick Rack Input":
-    st.caption(
-        "Rack별 IT Power가 이미 산정된 경우 사용합니다. "
-        "Rack Power, HCR, Pod 및 위치정보를 직접 입력합니다."
-    )
-else:
-    st.caption(
-        "Rack 내부 장비 구성과 수량을 입력하면 "
-        "장비별 설계전력을 합산하여 Rack Power를 자동 산정합니다."
-    )
+    if input_mode == "Quick Rack Input":
+        st.caption(
+            "Rack별 IT Power가 이미 산정된 경우 사용합니다. "
+            "Rack Power, HCR, Pod 및 위치정보를 직접 입력합니다."
+        )
+    else:
+        st.caption(
+            "Rack 내부 장비 구성과 수량을 입력하면 "
+            "장비별 설계전력을 합산하여 Rack Power를 자동 산정합니다."
+        )
+
     c1, c2 = st.columns([1, 4])
 
     with c1:
