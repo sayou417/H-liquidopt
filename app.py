@@ -1094,16 +1094,74 @@ elif phase == 2:
 
     phase1_racks = st.session_state.phase1_racks.copy()
 
-    pods = pod_summary(phase1_racks)
-    pods["CDU loading %"] = pods["liquid_load_kw"] / (cdu_capacity*1000) * 100
-    total_liquid = pods["liquid_load_kw"].sum()
-    min_duty = recommended_duty_cdus(total_liquid, cdu_capacity)
+    # -----------------------------------
+    # 2A. DESIGN BASIS
+    # -----------------------------------
+    st.markdown("### 2A · Design Basis")
 
-    m1,m2,m3 = st.columns(3)
-    m1.metric("Total liquid load", f"{total_liquid/1000:.2f} MW")
-    m2.metric("Minimum aggregate duty CDU", f"{min_duty} unit(s)")
-    m3.metric("Max pod loading", f"{pods['CDU loading %'].max():.1f}%")
-    st.dataframe(pods, use_container_width=True, hide_index=True)
+    b1, b2 = st.columns([1, 4])
+
+    with b1:
+        render_tag("PHASE 1 APPROVED", "verified")
+
+    with b2:
+        st.write(
+            "Phase 1에서 엔지니어가 승인한 Rack Load Model을 기반으로 "
+            "Pod별 Liquid Load와 CDU 용량 요구조건을 계산합니다."
+        )
+
+    pods = pod_summary(phase1_racks)
+
+    pods["CDU loading %"] = (
+        pods["liquid_load_kw"]
+        / (cdu_capacity * 1000)
+        * 100
+    )
+
+    total_liquid = pods["liquid_load_kw"].sum()
+
+    min_duty = recommended_duty_cdus(
+        total_liquid,
+        cdu_capacity,
+    )
+
+    max_pod_loading = pods["CDU loading %"].max()
+
+    m1, m2, m3, m4 = st.columns(4)
+
+    m1.metric(
+        "Total Liquid Load",
+        f"{total_liquid / 1000:.2f} MW",
+    )
+
+    m2.metric(
+        "Candidate CDU Capacity",
+        f"{cdu_capacity:.1f} MW",
+    )
+
+    m3.metric(
+        "Aggregate Duty Units",
+        f"{min_duty}",
+    )
+
+    m4.metric(
+        "Max Pod Loading",
+        f"{max_pod_loading:.1f}%",
+    )
+
+    st.markdown("#### Pod Load Basis")
+
+    st.dataframe(
+        pods,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.caption(
+        "※ Aggregate Duty Units는 총 Liquid Load를 CDU 정격용량으로 나눈 "
+        "기초 용량 산정값입니다. 실제 CDU 수량은 Pod 분리, redundancy, "
+        "유지보수 조건 및 배관 topology 검토에 따라 증가할 수 있습니다."
+    )
 
     options = pd.DataFrame([
         ["A", "One CDU per Pod + shared standby", "Clear pod boundary / simple isolation", "More CDU units; verify each pod fits one duty CDU"],
