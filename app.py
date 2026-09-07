@@ -553,7 +553,7 @@ if phase == 1:
             key="equipment_editor",
         )
 
-        st.session_state.equipment_input = edited_equipment
+        equipment_calc = edited_equipment.copy()
 
         # -----------------------------------
         # Rack Metadata
@@ -662,8 +662,6 @@ if phase == 1:
             },
             key="rack_metadata_editor",
         )
-
-        st.session_state.rack_metadata = edited_metadata
 
         equipment_calc = edited_equipment.copy()
 
