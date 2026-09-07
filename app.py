@@ -433,7 +433,7 @@ hero3.metric("IT load", f"{calc_now['it_power_kw'].sum()/1000:.2f} MW")
 hero4.metric("Liquid load", f"{calc_now['liquid_load_kw'].sum()/1000:.2f} MW")
 
 if phase == 1:
-  st.header("Phase 1 · Rack Heat Load & Spatial Review")
+    st.header("Phase 1 · Rack Heat Load & Spatial Review")
 
     st.caption(
         "Rack 및 IT 부하 정보를 확인하고, "
@@ -467,37 +467,22 @@ if phase == 1:
     ).sum() / 1000.0
 
     residual_air_mw = total_it_mw - liquid_load_mw
+
     m1, m2, m3, m4 = st.columns(4)
 
     with m1:
-        st.metric(
-            "Rack Count",
-            f"{rack_count}",
-        )
+        st.metric("Rack Count", f"{rack_count}")
 
     with m2:
-        st.metric(
-            "Cooling Pods",
-            f"{pod_count}",
-        )
+        st.metric("Cooling Pods", f"{pod_count}")
 
     with m3:
-        st.metric(
-            "Total IT Load",
-            f"{total_it_mw:.2f} MW",
-        )
+        st.metric("Total IT Load", f"{total_it_mw:.2f} MW")
 
     with m4:
-        st.metric(
-            "Liquid Load",
-            f"{liquid_load_mw:.2f} MW",
-        )
+        st.metric("Liquid Load", f"{liquid_load_mw:.2f} MW")
 
-    st.markdown(
-        """
-        **Input provenance**
-        """
-    )
+    st.markdown("**Input provenance**")
 
     t1, t2, t3 = st.columns(3)
 
@@ -512,53 +497,83 @@ if phase == 1:
     with t3:
         render_tag("CALCULATED", "calculated")
         st.caption("Liquid / Residual Air Load")
-     st.markdown("#### Rack Configuration")
+
+    st.markdown("#### Rack Configuration")
 
     st.info(
         "표의 값을 수정하면 Phase 1 계산 결과가 즉시 갱신됩니다."
     )
 
-edited_racks = st.data_editor(
+    edited_racks = st.data_editor(
         st.session_state.racks,
         use_container_width=True,
         num_rows="dynamic",
         column_config={
-            "hcr": st.column_config.NumberColumn("HCR", min_value=0.0, max_value=1.0, step=0.01, format="%.2f"),
-            "it_power_kw": st.column_config.NumberColumn("IT Power (kW)", min_value=0.0, step=5.0),
+            "hcr": st.column_config.NumberColumn(
+                "HCR",
+                min_value=0.0,
+                max_value=1.0,
+                step=0.01,
+                format="%.2f",
+            ),
+            "it_power_kw": st.column_config.NumberColumn(
+                "IT Power (kW)",
+                min_value=0.0,
+                step=5.0,
+            ),
         },
         key="rack_editor",
     )
-if not edited_racks.equals(st.session_state.racks):
-    st.session_state.racks = edited_racks
-    reset_downstream(1)
 
-errors = validate_racks(edited_racks)
+    if not edited_racks.equals(st.session_state.racks):
+        st.session_state.racks = edited_racks
+        reset_downstream(1)
 
-if errors:
-    st.error("Fix rack data before approval:\n- " + "\n- ".join(errors))
-    st.stop()
+    errors = validate_racks(edited_racks)
 
-calc = heat_loads(edited_racks)
-pods = pod_summary(edited_racks)
-st.divider()
+    if errors:
+        st.error(
+            "Fix rack data before approval:\n- "
+            + "\n- ".join(errors)
+        )
+        st.stop()
 
-st.markdown("### 1B · Analysis")
+    calc = heat_loads(edited_racks)
+    pods = pod_summary(edited_racks)
 
-a1, a2 = st.columns([1, 4])
+    # -----------------------------------
+    # 1B. ANALYSIS
+    # -----------------------------------
+    st.divider()
 
-with a1:
-    render_tag("CALCULATED", "calculated")
+    st.markdown("### 1B · Analysis")
 
-with a2:
-    st.write(
-        "Rack별 IT Power와 HCR을 이용해 Liquid Heat Load와 "
-        "Residual Air Heat Load를 계산하고 공간별 부하 분포를 분석합니다."
-    )
-    m1,m2,m3,m4 = st.columns(4)
+    a1, a2 = st.columns([1, 4])
+
+    with a1:
+        render_tag("CALCULATED", "calculated")
+
+    with a2:
+        st.write(
+            "Rack별 IT Power와 HCR을 이용해 Liquid Heat Load와 "
+            "Residual Air Heat Load를 계산하고 공간별 부하 분포를 분석합니다."
+        )
+
+    m1, m2, m3, m4 = st.columns(4)
+
     m1.metric("Rack positions", len(calc))
-    m2.metric("Total IT Load", f"{calc['it_power_kw'].sum()/1000:.2f} MW")
-    m3.metric("Liquid Load", f"{calc['liquid_load_kw'].sum()/1000:.2f} MW")
-    m4.metric("Residual Air", f"{calc['residual_air_kw'].sum()/1000:.2f} MW")
+    m2.metric(
+        "Total IT Load",
+        f"{calc['it_power_kw'].sum()/1000:.2f} MW",
+    )
+    m3.metric(
+        "Liquid Load",
+        f"{calc['liquid_load_kw'].sum()/1000:.2f} MW",
+    )
+    m4.metric(
+        "Residual Air",
+        f"{calc['residual_air_kw'].sum()/1000:.2f} MW",
+    )
 
     left, right = st.columns([1.35, 1])
 
@@ -579,10 +594,20 @@ with a2:
                 color_continuous_scale="Blues",
             )
 
-            fig.update_xaxes(side="top", title="Column")
-            fig.update_yaxes(title="Row", autorange="reversed")
+            fig.update_xaxes(
+                side="top",
+                title="Column",
+            )
 
-            st.plotly_chart(fig, use_container_width=True)
+            fig.update_yaxes(
+                title="Row",
+                autorange="reversed",
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+            )
 
             st.caption(
                 "※ 본 Heat-Load Density Map은 CFD 기반 실제 온도 Hot Spot이 아니라, "
@@ -594,22 +619,41 @@ with a2:
                 "No row/col columns: thermal totals still work, "
                 "but spatial heat map is skipped."
             )
+
     with right:
         st.markdown("#### Pod summary")
-        st.dataframe(pods, use_container_width=True, hide_index=True)
-        hottest = pods.loc[pods["liquid_load_kw"].idxmax()]
+
+        st.dataframe(
+            pods,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        hottest = pods.loc[
+            pods["liquid_load_kw"].idxmax()
+        ]
+
         st.markdown(
-            f"<div class='phase-card'>Highest liquid-load pod: <b>{hottest['pod']}</b><br>"
-            f"{hottest['liquid_load_kw']/1000:.3f} MW liquid load · {int(hottest['liquid_racks'])} liquid-cooled racks</div>",
+            f"<div class='phase-card'>"
+            f"Highest liquid-load pod: <b>{hottest['pod']}</b><br>"
+            f"{hottest['liquid_load_kw']/1000:.3f} MW liquid load · "
+            f"{int(hottest['liquid_racks'])} liquid-cooled racks"
+            f"</div>",
             unsafe_allow_html=True,
         )
-         st.markdown("#### Analysis Note")
+
+    st.markdown("#### Analysis Note")
 
     st.info(
         f"현재 입력조건에서는 **Pod {hottest['pod']}**의 Liquid Load가 "
         f"가장 높으며, 약 **{hottest['liquid_load_kw']/1000:.3f} MW**입니다. "
-        "Phase 2에서는 해당 Pod의 CDU loading과 Zone별 설비 구성을 우선 검토할 수 있습니다."
+        "Phase 2에서는 해당 Pod의 CDU loading과 Zone별 설비 구성을 "
+        "우선 검토할 수 있습니다."
     )
+
+    # -----------------------------------
+    # 1C. ENGINEER REVIEW
+    # -----------------------------------
     st.divider()
 
     st.markdown("### 1C · Engineer Review")
@@ -617,7 +661,10 @@ with a2:
     r1, r2 = st.columns([1, 4])
 
     with r1:
-        render_tag("REVIEW REQUIRED", "review")
+        render_tag(
+            "REVIEW REQUIRED",
+            "review",
+        )
 
     with r2:
         st.write(
@@ -662,12 +709,16 @@ with a2:
         use_container_width=True,
     ):
         st.session_state.approved[1] = True
+
         st.success(
-            "Phase 1 approved. Phase 2에서 TCS / CDU 후보를 검토할 수 있습니다."
+            "Phase 1 approved. "
+            "Phase 2에서 TCS / CDU 후보를 검토할 수 있습니다."
         )
 
     if st.session_state.approved[1]:
-        st.success("✓ Phase 1 Engineer Review Approved")
+        st.success(
+            "✓ Phase 1 Engineer Review Approved"
+        )
 
 elif phase == 2:
     st.subheader("Phase 2 · TCS / CDU Candidate Review")
