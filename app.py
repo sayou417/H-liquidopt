@@ -1901,10 +1901,38 @@ elif phase == 3:
         f"{baseline_temp:.1f} °C",
     )
 
-    st.caption(
-        f"Baseline source: {baseline_source}"
+        st.markdown("##### Reference & Source")
+
+    st.write(
+        f"**Baseline basis:** {baseline_name} · "
+        f"{baseline_temp:.1f} °C property reference"
     )
 
+    if baseline_mode == "Default Pure-water Reference":
+        st.markdown(
+            """
+            **Source basis:**  
+            NIST · *Reference Correlations for Thermophysical Properties of Liquid Water at 0.1 MPa*  
+            Based primarily on IAPWS formulations.
+
+            - [NIST Reference Correlation](https://www.nist.gov/publications/reference-correlations-thermophysical-properties-liquid-water-01-mpa)
+            - [NIST Chemistry WebBook · Fluid Properties](https://webbook.nist.gov/chemistry/fluid/)
+            """
+        )
+
+        st.caption(
+            "A는 순수 물의 thermophysical reference baseline이며, "
+            "실제 D2C coolant의 OEM 승인 또는 적용 적합성을 의미하지 않습니다."
+        )
+
+    else:
+        st.write(
+            f"**User-provided source:** {baseline_source}"
+        )
+
+        st.caption(
+            "Custom Baseline은 엔지니어가 입력한 프로젝트 기준 데이터입니다."
+        )
     # -----------------------------------
     # B · Project Candidate
     # -----------------------------------
