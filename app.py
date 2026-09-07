@@ -110,59 +110,272 @@ if "racks" not in st.session_state:
 if "approved" not in st.session_state:
     st.session_state.approved = {1: False, 2: False, 3: False, 4: False}
 
+# Persistent project inputs
+defaults = {
+    "supply_t": 35.0,
+    "return_t": 45.0,
+    "cdu_capacity": 2.0,
+    "redundancy": "N+1 shared standby",
+    "common_d": 0.2027,
+    "row_d": 0.1541,
+    "branch_d": 0.0525,
+    "common_l": 20.0,
+    "row_l": 12.0,
+    "branch_l": 6.0,
+    "rack_dp": 120.0,
+}
+
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
 st.title("H-LiquidOpt")
 st.caption("Human-in-the-Loop · D2C liquid-cooling preliminary design support prototype")
+phase = st.radio(
+    "Design phase",
+    [1, 2, 3, 4, 5],
+    format_func=lambda x: {
+        1: "1 · Thermal",
+        2: "2 · TCS / CDU",
+        3: "3 · Coolant",
+        4: "4 · Hydraulics",
+        5: "5 · Final Review",
+    }[x],
+    horizontal=True,
+    key="design_phase",
+)
 
 with st.sidebar:
-    st.header("Project inputs")
-    st.caption("48-rack data is only the default demo. Uploaded CSV row count is read dynamically.")
-    supply_t = st.number_input("TCS Supply Temperature (°C)", value=35.0, step=1.0)
-    return_t = st.number_input("TCS Return Temperature (°C)", value=45.0, step=1.0)
-    delta_t = return_t - supply_t
-    cdu_capacity = st.number_input("CDU Candidate Capacity (MW/unit)", min_value=0.1, value=2.0, step=0.1)
-    redundancy = st.selectbox("Redundancy", ["N+1 shared standby", "N", "2N"])
+    st.header("H-LiquidOpt")
+    st.caption(f"Design workflow · Phase {phase} of 5")
 
-    st.divider()
-    st.subheader("Preliminary hydraulics")
-    common_d = st.number_input("Common pipe ID (m)", min_value=0.001, value=0.2027, format="%.4f")
-    row_d = st.number_input("Row header ID (m)", min_value=0.001, value=0.1541, format="%.4f")
-    branch_d = st.number_input("Rack branch ID (m)", min_value=0.001, value=0.0525, format="%.4f")
-    common_l = st.number_input("Common supply+return length (m)", min_value=0.0, value=20.0, step=1.0)
-    row_l = st.number_input("Row header supply+return length (m)", min_value=0.0, value=12.0, step=1.0)
-    branch_l = st.number_input("Rack branch supply+return length (m)", min_value=0.0, value=6.0, step=1.0)
-    rack_dp = st.number_input(
-        "Synthetic rack ΔP reference (kPa)", min_value=0.0, value=120.0, step=5.0,
-        help="PoC placeholder. Engineering use requires an OEM pressure-flow curve.",
-    )
+    # -------------------------
+    # PHASE 1
+    # -------------------------
+    if phase == 1:
+        st.subheader("Rack / IT Inputs")
 
-    st.divider()
-    st.subheader("Rack data")
-    template = pd.DataFrame({
-        "rack_id": ["R001", "R002"],
-        "pod": ["A", "A"],
-        "rack_type": ["Compute", "Support"],
-        "it_power_kw": [120.0, 20.0],
-        "hcr": [0.85, 0.0],
-        "row": [1, 1],
-        "col": [1, 2],
-    })
-    st.download_button(
-        "Rack CSV template",
-        template.to_csv(index=False).encode("utf-8-sig"),
-        "hliquidopt_rack_template.csv",
-        "text/csv",
-        use_container_width=True,
-    )
-    uploaded = st.file_uploader("Rack CSV upload", type=["csv"])
-    if uploaded is not None:
-        new_racks = pd.read_csv(uploaded)
-        if not new_racks.equals(st.session_state.racks):
-            st.session_state.racks = new_racks
+        st.caption(
+            "Upload the project rack dataset or use the built-in demo case."
+        )
+
+        template = pd.DataFrame({
+            "rack_id": ["R001", "R002"],
+            "pod": ["A", "A"],
+            "rack_type": ["Compute", "Support"],
+            "it_power_kw": [120.0, 20.0],
+            "hcr": [0.85, 0.0],
+            "row": [1, 1],
+            "col": [1, 2],
+        })
+
+        st.download_button(
+            "Download Rack CSV template",
+            template.to_csv(index=False).encode("utf-8-sig"),
+            "hliquidopt_rack_template.csv",
+            "text/csv",
+            use_container_width=True,
+        )
+
+        uploaded = st.file_uploader(
+            "Upload Rack CSV",
+            type=["csv"],
+            key="rack_csv_upload",
+        )
+
+        if uploaded is not None:
+            new_racks = pd.read_csv(uploaded)
+
+            if not new_racks.equals(st.session_state.racks):
+                st.session_state.racks = new_racks
+                reset_downstream(1)
+
+        if st.button(
+            "Restore 48-rack demo",
+            use_container_width=True,
+        ):
+            st.session_state.racks = load_default_racks()
             reset_downstream(1)
-    if st.button("Restore 48-rack demo", use_container_width=True):
-        st.session_state.racks = load_default_racks()
-        reset_downstream(1)
-        st.rerun()
+            st.rerun()
+
+        st.divider()
+
+        st.caption(
+            "Phase 1 only requires rack and spatial data. "
+            "Hydraulic parameters are entered later."
+        )
+
+    # -------------------------
+    # PHASE 2
+    # -------------------------
+    elif phase == 2:
+        st.subheader("TCS / CDU Inputs")
+
+        st.number_input(
+            "CDU Candidate Capacity (MW/unit)",
+            min_value=0.1,
+            step=0.1,
+            key="cdu_capacity",
+        )
+
+        st.selectbox(
+            "Redundancy",
+            [
+                "N+1 shared standby",
+                "N",
+                "2N",
+            ],
+            key="redundancy",
+        )
+
+        st.divider()
+
+        st.caption(
+            "These values are used to screen TCS/CDU topology candidates."
+        )
+
+    # -------------------------
+    # PHASE 3
+    # -------------------------
+    elif phase == 3:
+        st.subheader("Coolant Conditions")
+
+        st.number_input(
+            "TCS Supply Temperature (°C)",
+            step=1.0,
+            key="supply_t",
+        )
+
+        st.number_input(
+            "TCS Return Temperature (°C)",
+            step=1.0,
+            key="return_t",
+        )
+
+        current_dt = (
+            st.session_state.return_t
+            - st.session_state.supply_t
+        )
+
+        st.metric(
+            "Design ΔT",
+            f"{current_dt:.1f} K",
+        )
+
+        if current_dt <= 0:
+            st.error(
+                "Return temperature must be greater than supply temperature."
+            )
+
+        st.divider()
+
+        st.caption(
+            "Coolant selection remains subject to OEM and supplier validation."
+        )
+
+    # -------------------------
+    # PHASE 4
+    # -------------------------
+    elif phase == 4:
+        st.subheader("Hydraulic Inputs")
+
+        st.markdown("**Pipe geometry**")
+
+        st.number_input(
+            "Common pipe ID (m)",
+            min_value=0.001,
+            format="%.4f",
+            key="common_d",
+        )
+
+        st.number_input(
+            "Row header ID (m)",
+            min_value=0.001,
+            format="%.4f",
+            key="row_d",
+        )
+
+        st.number_input(
+            "Rack branch ID (m)",
+            min_value=0.001,
+            format="%.4f",
+            key="branch_d",
+        )
+
+        st.markdown("**Equivalent supply + return length**")
+
+        st.number_input(
+            "Common pipe length (m)",
+            min_value=0.0,
+            step=1.0,
+            key="common_l",
+        )
+
+        st.number_input(
+            "Row header length (m)",
+            min_value=0.0,
+            step=1.0,
+            key="row_l",
+        )
+
+        st.number_input(
+            "Rack branch length (m)",
+            min_value=0.0,
+            step=1.0,
+            key="branch_l",
+        )
+
+        st.divider()
+
+        st.number_input(
+            "Synthetic rack ΔP reference (kPa)",
+            min_value=0.0,
+            step=5.0,
+            key="rack_dp",
+            help=(
+                "PoC placeholder only. "
+                "Final engineering use requires an OEM pressure-flow curve."
+            ),
+        )
+
+        st.warning(
+            "Rack ΔP is currently an ASSUMPTION used for prototype sensitivity."
+        )
+
+    # -------------------------
+    # PHASE 5
+    # -------------------------
+    else:
+        st.subheader("Final Review")
+
+        st.caption(
+            "No new engineering inputs are required in this phase."
+        )
+
+        st.metric(
+            "Approved phases",
+            f"{sum(bool(st.session_state.approved[p]) for p in [1,2,3,4])} / 4",
+        )
+
+
+# Values persist even when their input widgets are hidden
+supply_t = float(st.session_state.supply_t)
+return_t = float(st.session_state.return_t)
+delta_t = return_t - supply_t
+
+cdu_capacity = float(st.session_state.cdu_capacity)
+redundancy = st.session_state.redundancy
+
+common_d = float(st.session_state.common_d)
+row_d = float(st.session_state.row_d)
+branch_d = float(st.session_state.branch_d)
+
+common_l = float(st.session_state.common_l)
+row_l = float(st.session_state.row_l)
+branch_l = float(st.session_state.branch_l)
+
+rack_dp = float(st.session_state.rack_dp)
+
 
 geom = HydraulicGeometry(
     common_length_m=common_l,
@@ -188,19 +401,6 @@ hero1.metric("Rack count", f"{len(calc_now)}")
 hero2.metric("Pods", f"{calc_now['pod'].nunique()}")
 hero3.metric("IT load", f"{calc_now['it_power_kw'].sum()/1000:.2f} MW")
 hero4.metric("Liquid load", f"{calc_now['liquid_load_kw'].sum()/1000:.2f} MW")
-
-phase = st.radio(
-    "Design phase",
-    [1,2,3,4,5],
-    format_func=lambda x: {
-        1:"1 · Rack / Heat Load",
-        2:"2 · TCS / CDU",
-        3:"3 · Coolant",
-        4:"4 · Hydraulics",
-        5:"5 · Review",
-    }[x],
-    horizontal=True,
-)
 
 if phase == 1:
     st.subheader("Phase 1 · Rack Heat Load & Spatial Review")
