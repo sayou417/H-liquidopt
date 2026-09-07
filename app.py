@@ -1630,6 +1630,82 @@ elif phase == 2:
         )
 
 elif phase == 3:
+    st.header("Phase 3 · Coolant & Material Validator")
+
+    st.caption(
+        "Phase 2에서 승인된 TCS / CDU 구성과 운전온도를 기반으로 "
+        "Coolant 물성과 wetted-material 적합성을 검토합니다."
+    )
+
+    # -----------------------------------
+    # Phase 2 approval gate
+    # -----------------------------------
+    if not st.session_state.approved[2]:
+        st.warning(
+            "Phase 2 Engineer Review가 아직 완료되지 않았습니다. "
+            "TCS / CDU 후보를 승인한 후 Coolant 검토를 진행해주세요."
+        )
+        st.stop()
+
+    # -----------------------------------
+    # 3A. DESIGN BASIS
+    # -----------------------------------
+    st.markdown("### 3A · Design Basis")
+
+    b1, b2 = st.columns([1, 4])
+
+    with b1:
+        render_tag("PHASE 2 APPROVED", "verified")
+
+    with b2:
+        st.write(
+            "승인된 TCS / CDU 후보와 TCS Supply / Return Temperature를 "
+            "Coolant 검토의 기본 설계조건으로 사용합니다."
+        )
+
+    delta_t = return_t - supply_t
+
+    m1, m2, m3, m4 = st.columns(4)
+
+    m1.metric(
+        "Selected Topology",
+        st.session_state.get(
+            "topology_choice",
+            "Not selected",
+        ),
+    )
+
+    m2.metric(
+        "TCS Supply",
+        f"{supply_t:.1f} °C",
+    )
+
+    m3.metric(
+        "TCS Return",
+        f"{return_t:.1f} °C",
+    )
+
+    m4.metric(
+        "ΔT",
+        f"{delta_t:.1f} K",
+    )
+
+    if return_t <= supply_t:
+        st.error(
+            "Return Temperature는 Supply Temperature보다 높아야 합니다."
+        )
+        st.stop()
+
+    if delta_t < 3:
+        st.warning(
+            "현재 ΔT가 매우 작습니다. 요구 유량이 증가할 수 있으므로 "
+            "Phase 4 Hydraulic 검토에서 유량 및 Pump Power를 확인해야 합니다."
+        )
+
+    st.caption(
+        "※ 본 온도조건은 설계 입력값이며 특정 OEM의 허용범위를 의미하지 않습니다. "
+        "실제 적용 전 장비 제조사의 coolant 및 operating-temperature 요구조건을 확인해야 합니다."
+    )
     st.subheader("Phase 3 · Coolant & Material Candidate Review")
     if not st.session_state.approved[2]:
         st.warning("Phase 2 is pending. Coolant comparison remains exploratory.")
