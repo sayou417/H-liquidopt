@@ -2677,8 +2677,8 @@ elif phase == 3:
             return_t
         )
 
-        st.session_state.phase3_wetted_materials = (
-            wetted_materials
+        st.session_state.phase3_approved_wetted_materials = (
+            list(wetted_materials)
         )
 
         # -----------------------------------
