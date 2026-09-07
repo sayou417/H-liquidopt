@@ -1628,17 +1628,16 @@ elif phase == 2:
             f"✓ Phase 2 Engineer Review Approved · "
             f"{st.session_state.get('topology_choice', choice)}"
         )
-
 elif phase == 3:
     st.header("Phase 3 · Coolant Property & Compatibility Review")
 
     st.caption(
-        "Phase 2에서 승인된 설계조건을 기반으로 Baseline, 실제 Project Candidate, "
+        "Phase 2에서 승인된 설계조건을 기반으로 Baseline, Project Candidate, "
         "Sensitivity Case의 물성을 비교하고 Phase 4 Hydraulic 계산에 사용할 데이터를 검증합니다."
     )
 
     # -----------------------------------
-    # PHASE 2 APPROVAL GATE
+    # Phase 2 approval gate
     # -----------------------------------
     if not st.session_state.approved[2]:
         st.warning(
@@ -1654,10 +1653,11 @@ elif phase == 3:
         )
         st.stop()
 
-    # Default coolant database
+    # -----------------------------------
+    # Load reference coolant database
+    # -----------------------------------
     cdf = load_default_coolants()
 
-    # Phase 1 approved heat load
     phase3_racks = st.session_state.phase1_racks.copy()
     phase3_calc = heat_loads(phase3_racks)
 
@@ -1713,7 +1713,7 @@ elif phase == 3:
     st.caption(
         f"Property comparison target temperature: 약 {mean_fluid_temp:.1f} °C "
         "(Supply / Return 평균온도 기준). "
-        "본 온도는 특정 OEM 허용조건을 의미하지 않습니다."
+        "본 온도는 특정 OEM의 허용조건을 의미하지 않습니다."
     )
 
     # ===================================
@@ -1735,7 +1735,7 @@ elif phase == 3:
         )
 
     # -----------------------------------
-    # A · Baseline
+    # A · Baseline Reference
     # -----------------------------------
     st.markdown("#### A · Baseline Reference")
 
@@ -1762,6 +1762,7 @@ elif phase == 3:
     water_row = water_match.iloc[0]
 
     if baseline_mode == "Default Pure-water Reference":
+
         baseline_name = "Pure-water Reference"
 
         baseline_rho = float(
@@ -1776,19 +1777,29 @@ elif phase == 3:
             water_row["mu_pa_s"]
         )
 
-        baseline_temp = float(
-            water_row.get(
-                "property_temp_c",
-                40.0,
+        if (
+            "property_temp_c" in water_row.index
+            and pd.notna(water_row["property_temp_c"])
+        ):
+            baseline_temp = float(
+                water_row["property_temp_c"]
             )
-        )
+        else:
+            baseline_temp = 40.0
 
-        baseline_source = str(
-            water_row.get(
-                "source",
-                "NIST/IAPWS liquid-water reference basis",
+        if (
+            "source" in water_row.index
+            and pd.notna(water_row["source"])
+        ):
+            baseline_source = str(
+                water_row["source"]
             )
-        )
+        else:
+            baseline_source = (
+                "Pure-water thermophysical reference dataset"
+            )
+
+        baseline_data_ready = True
 
         render_tag("REFERENCE", "verified")
 
@@ -1800,12 +1811,18 @@ elif phase == 3:
     else:
         render_tag("USER INPUT", "input")
 
+        baseline_name = st.text_input(
+            "Baseline Fluid Name",
+            value="Existing Project Baseline",
+            key="phase3_baseline_name",
+        )
+
         cA1, cA2, cA3 = st.columns(3)
 
         with cA1:
             baseline_rho = st.number_input(
                 "Baseline Density (kg/m³)",
-                min_value=1.0,
+                min_value=0.0,
                 value=992.2,
                 step=1.0,
                 key="phase3_baseline_rho",
@@ -1814,7 +1831,7 @@ elif phase == 3:
         with cA2:
             baseline_cp = st.number_input(
                 "Baseline Cp (kJ/kg·K)",
-                min_value=0.1,
+                min_value=0.0,
                 value=4.179,
                 step=0.01,
                 key="phase3_baseline_cp",
@@ -1823,7 +1840,7 @@ elif phase == 3:
         with cA3:
             baseline_mu_mpas = st.number_input(
                 "Baseline Viscosity (mPa·s)",
-                min_value=0.01,
+                min_value=0.0,
                 value=0.653,
                 step=0.01,
                 key="phase3_baseline_mu",
@@ -1840,17 +1857,27 @@ elif phase == 3:
             key="phase3_baseline_temp",
         )
 
-        baseline_name = st.text_input(
-            "Baseline Fluid Name",
-            value="Existing Project Baseline",
-            key="phase3_baseline_name",
-        )
-
         baseline_source = st.text_input(
             "Baseline Data Source",
-            placeholder="예: Existing facility datasheet / supplier table",
+            placeholder=(
+                "예: Existing facility datasheet / supplier property table"
+            ),
             key="phase3_baseline_source",
         )
+
+        baseline_data_ready = (
+            bool(baseline_name.strip())
+            and bool(baseline_source.strip())
+            and baseline_rho > 0
+            and baseline_cp > 0
+            and baseline_mu_pa_s > 0
+        )
+
+        if not baseline_data_ready:
+            st.warning(
+                "Custom Baseline을 사용하려면 이름, 출처 및 "
+                "Density / Cp / Viscosity를 모두 입력해야 합니다."
+            )
 
     baseline_cols = st.columns(4)
 
@@ -1934,7 +1961,9 @@ elif phase == 3:
 
     candidate_source = st.text_input(
         "Supplier / OEM Property Source",
-        placeholder="예: Supplier datasheet revision / OEM approval document",
+        placeholder=(
+            "예: Supplier datasheet revision / OEM approval document"
+        ),
         key="phase3_supplier_source",
     )
 
@@ -1961,7 +1990,7 @@ elif phase == 3:
         )
 
     # -----------------------------------
-    # C · Sensitivity
+    # C · Sensitivity Case
     # -----------------------------------
     st.markdown("#### C · PG30 Sensitivity Case")
 
@@ -1991,19 +2020,27 @@ elif phase == 3:
         pg_row["mu_pa_s"]
     )
 
-    sensitivity_temp = float(
-        pg_row.get(
-            "property_temp_c",
-            40.0,
+    if (
+        "property_temp_c" in pg_row.index
+        and pd.notna(pg_row["property_temp_c"])
+    ):
+        sensitivity_temp = float(
+            pg_row["property_temp_c"]
         )
-    )
+    else:
+        sensitivity_temp = 40.0
 
-    sensitivity_source = str(
-        pg_row.get(
-            "source",
-            "Sensitivity dataset",
+    if (
+        "source" in pg_row.index
+        and pd.notna(pg_row["source"])
+    ):
+        sensitivity_source = str(
+            pg_row["source"]
         )
-    )
+    else:
+        sensitivity_source = (
+            "H-LiquidOpt sensitivity dataset"
+        )
 
     render_tag("SENSITIVITY", "assumption")
 
@@ -2053,9 +2090,13 @@ elif phase == 3:
     with p2:
         st.write(
             "동일한 Liquid Heat Load와 ΔT 조건에서 "
-            "각 유체의 물성 차이와 요구 유량 차이를 비교합니다."
+            "각 유체의 물성 차이와 이론 요구유량 차이를 비교합니다."
         )
 
+    # -----------------------------------
+    # Flow calculation helper
+    # Q = m_dot * Cp * DeltaT
+    # -----------------------------------
     def required_flow_lpm(
         heat_kw,
         rho,
@@ -2110,12 +2151,32 @@ elif phase == 3:
         }
     ]
 
+    candidate_flow_lpm = 0.0
+
     if candidate_data_complete:
         candidate_flow_lpm = required_flow_lpm(
             total_liquid_kw,
             candidate_rho,
             candidate_cp,
             delta_t,
+        )
+
+        candidate_flow_delta = (
+            (
+                candidate_flow_lpm
+                / baseline_flow_lpm
+                - 1
+            )
+            * 100
+            if baseline_flow_lpm > 0
+            else 0.0
+        )
+
+        candidate_viscosity_ratio = (
+            candidate_mu_pa_s
+            / baseline_mu_pa_s
+            if baseline_mu_pa_s > 0
+            else 0.0
         )
 
         comparison_rows.append(
@@ -2126,7 +2187,511 @@ elif phase == 3:
                 "Cp kJ/kg·K": candidate_cp,
                 "Viscosity mPa·s": candidate_mu_mpas,
                 "Property Temp °C": candidate_temp,
-                "Required Flow LPM": candidate_flow_lpm
+                "Required Flow LPM": candidate_flow_lpm,
+                "Flow vs Baseline %": candidate_flow_delta,
+                "Viscosity Ratio vs A": candidate_viscosity_ratio,
+            }
+        )
+
+    sensitivity_flow_delta = (
+        (
+            sensitivity_flow_lpm
+            / baseline_flow_lpm
+            - 1
+        )
+        * 100
+        if baseline_flow_lpm > 0
+        else 0.0
+    )
+
+    sensitivity_viscosity_ratio = (
+        sensitivity_mu_pa_s
+        / baseline_mu_pa_s
+        if baseline_mu_pa_s > 0
+        else 0.0
+    )
+
+    comparison_rows.append(
+        {
+            "Case": "C · Sensitivity",
+            "Fluid": sensitivity_name,
+            "Density kg/m³": sensitivity_rho,
+            "Cp kJ/kg·K": sensitivity_cp,
+            "Viscosity mPa·s": sensitivity_mu_pa_s * 1000,
+            "Property Temp °C": sensitivity_temp,
+            "Required Flow LPM": sensitivity_flow_lpm,
+            "Flow vs Baseline %": sensitivity_flow_delta,
+            "Viscosity Ratio vs A": sensitivity_viscosity_ratio,
+        }
+    )
+
+    comparison_df = pd.DataFrame(
+        comparison_rows
+    )
+
+    st.dataframe(
+        comparison_df.style.format(
+            {
+                "Density kg/m³": "{:.2f}",
+                "Cp kJ/kg·K": "{:.3f}",
+                "Viscosity mPa·s": "{:.3f}",
+                "Property Temp °C": "{:.1f}",
+                "Required Flow LPM": "{:.1f}",
+                "Flow vs Baseline %": "{:+.1f}%",
+                "Viscosity Ratio vs A": "{:.2f}×",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # -----------------------------------
+    # Relative property comparison
+    # -----------------------------------
+    st.markdown("#### Relative to Baseline")
+
+    def percent_change(
+        value,
+        baseline,
+    ):
+        if baseline == 0:
+            return 0.0
+
+        return (
+            (value / baseline) - 1
+        ) * 100
+
+    relative_rows = []
+
+    if candidate_data_complete:
+        relative_rows.append(
+            {
+                "Case": "B · Project Candidate",
+                "Density Δ %": percent_change(
+                    candidate_rho,
+                    baseline_rho,
+                ),
+                "Cp Δ %": percent_change(
+                    candidate_cp,
+                    baseline_cp,
+                ),
+                "Viscosity Δ %": percent_change(
+                    candidate_mu_pa_s,
+                    baseline_mu_pa_s,
+                ),
+                "Required Flow Δ %": percent_change(
+                    candidate_flow_lpm,
+                    baseline_flow_lpm,
+                ),
+            }
+        )
+
+    relative_rows.append(
+        {
+            "Case": "C · Sensitivity",
+            "Density Δ %": percent_change(
+                sensitivity_rho,
+                baseline_rho,
+            ),
+            "Cp Δ %": percent_change(
+                sensitivity_cp,
+                baseline_cp,
+            ),
+            "Viscosity Δ %": percent_change(
+                sensitivity_mu_pa_s,
+                baseline_mu_pa_s,
+            ),
+            "Required Flow Δ %": percent_change(
+                sensitivity_flow_lpm,
+                baseline_flow_lpm,
+            ),
+        }
+    )
+
+    relative_df = pd.DataFrame(
+        relative_rows
+    )
+
+    st.dataframe(
+        relative_df.style.format(
+            {
+                "Density Δ %": "{:+.1f}%",
+                "Cp Δ %": "{:+.1f}%",
+                "Viscosity Δ %": "{:+.1f}%",
+                "Required Flow Δ %": "{:+.1f}%",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.caption(
+        "※ Required Flow는 동일 Liquid Heat Load와 동일 ΔT 조건에서 "
+        "Density와 Cp 차이에 의해 발생하는 이론 요구유량 비교입니다. "
+        "배관 압력손실과 Pump Power 비교는 Phase 4에서 수행합니다."
+    )
+
+    # -----------------------------------
+    # Property temperature consistency
+    # -----------------------------------
+    st.markdown("#### Property Temperature Check")
+
+    temp_warning = False
+
+    if abs(
+        baseline_temp - mean_fluid_temp
+    ) > 2.0:
+        temp_warning = True
+
+        st.warning(
+            f"A Baseline 물성 기준온도는 {baseline_temp:.1f}°C이고 "
+            f"현재 평균 유체온도는 {mean_fluid_temp:.1f}°C입니다. "
+            "가능하면 실제 설계온도에 가까운 물성값을 사용하세요."
+        )
+
+    if candidate_data_complete:
+        if abs(
+            candidate_temp - baseline_temp
+        ) > 1.0:
+            temp_warning = True
+
+            st.warning(
+                f"A Baseline은 {baseline_temp:.1f}°C, "
+                f"B Project Candidate는 {candidate_temp:.1f}°C 물성입니다. "
+                "동일 온도 기준의 supplier property 확보를 권장합니다."
+            )
+
+    if abs(
+        sensitivity_temp - baseline_temp
+    ) > 1.0:
+        temp_warning = True
+
+        st.warning(
+            f"A Baseline은 {baseline_temp:.1f}°C, "
+            f"C Sensitivity는 {sensitivity_temp:.1f}°C 물성입니다. "
+            "결과 해석 시 기준온도 차이를 고려해야 합니다."
+        )
+
+    if not temp_warning:
+        st.success(
+            "Property reference temperatures are aligned."
+        )
+
+    # ===================================
+    # 3D · MATERIAL & EVIDENCE VALIDATION
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 3D · Material & Evidence Validation"
+    )
+
+    d1, d2 = st.columns([1, 4])
+
+    with d1:
+        render_tag(
+            "REVIEW REQUIRED",
+            "review",
+        )
+
+    with d2:
+        st.write(
+            "Project Candidate의 실제 적용 가능성을 자동 확정하지 않고, "
+            "wetted material 구성과 OEM / supplier 근거 확보 여부를 확인합니다."
+        )
+
+    st.markdown("#### Wetted Materials")
+
+    wetted_materials = st.multiselect(
+        "Materials in contact with coolant",
+        [
+            "Copper / Copper Alloy",
+            "Stainless Steel",
+            "Aluminum / Aluminum Alloy",
+            "EPDM",
+            "FKM",
+            "NBR",
+            "Engineering Plastics",
+            "Other",
+        ],
+        default=[
+            "Copper / Copper Alloy",
+            "Stainless Steel",
+            "EPDM",
+        ],
+        key="phase3_wetted_materials",
+    )
+
+    if (
+        "Copper / Copper Alloy" in wetted_materials
+        and "Aluminum / Aluminum Alloy" in wetted_materials
+    ):
+        st.warning(
+            "Cu계와 Al계 재질이 동일 coolant loop에 포함되어 있습니다. "
+            "자동 Reject하지 않으며 galvanic corrosion 위험, inhibitor 구성 및 "
+            "supplier compatibility 자료를 별도로 검토해야 합니다."
+        )
+
+    st.caption(
+        "※ 재질 목록만으로 compatibility를 확정하지 않습니다. "
+        "최종 판단에는 coolant supplier의 compatibility 자료와 "
+        "실제 재질·온도·농도 조건 검토가 필요합니다."
+    )
+
+    st.markdown(
+        "#### Project Candidate Evidence"
+    )
+
+    if candidate_data_complete:
+
+        check_oem = st.checkbox(
+            "OEM이 해당 coolant / formulation의 사용을 허용함을 확인했습니다.",
+            key="phase3_check_oem",
+        )
+
+        check_properties = st.checkbox(
+            "입력한 Density, Cp, Viscosity가 supplier/OEM 자료와 일치함을 확인했습니다.",
+            key="phase3_check_properties",
+        )
+
+        check_material = st.checkbox(
+            "선택한 wetted materials에 대한 compatibility 자료를 확인했습니다.",
+            key="phase3_check_material",
+        )
+
+        source_ready = bool(
+            candidate_source.strip()
+        )
+
+        candidate_evidence_ready = (
+            check_oem
+            and check_properties
+            and check_material
+            and source_ready
+        )
+
+        if not source_ready:
+            st.warning(
+                "Supplier / OEM Property Source를 입력해야 합니다."
+            )
+
+        if candidate_evidence_ready:
+            st.success(
+                "B Project Candidate · ELIGIBLE FOR PHASE 4 ANALYSIS"
+            )
+        else:
+            st.warning(
+                "B Project Candidate · EVIDENCE INCOMPLETE"
+            )
+
+    else:
+        candidate_evidence_ready = False
+
+        st.info(
+            "B Project Candidate의 물성값이 완성되지 않아 "
+            "현재 Phase 4 계산 대상으로 사용할 수 없습니다."
+        )
+
+    # ===================================
+    # 3E · ENGINEER REVIEW
+    # ===================================
+    st.divider()
+
+    st.markdown("### 3E · Engineer Review")
+
+    e1, e2 = st.columns([1, 4])
+
+    with e1:
+        render_tag(
+            "REVIEW REQUIRED",
+            "review",
+        )
+
+    with e2:
+        st.write(
+            "Baseline, Project Candidate 및 Sensitivity Case의 역할과 "
+            "데이터 근거를 확인한 후 Phase 4 계산 대상을 승인합니다."
+        )
+
+    analysis_options = [
+        "A · Baseline Reference",
+        "C · PG30 Sensitivity",
+    ]
+
+    if (
+        candidate_data_complete
+        and candidate_evidence_ready
+    ):
+        analysis_options.insert(
+            1,
+            "B · Project Candidate",
+        )
+
+    selected_analysis_cases = st.multiselect(
+        "Cases to send to Phase 4",
+        analysis_options,
+        default=analysis_options,
+        key="phase3_analysis_cases",
+    )
+
+    check_comparison = st.checkbox(
+        "A/B/C 물성 및 요구유량 비교 결과를 확인했습니다.",
+        key="phase3_check_comparison",
+    )
+
+    check_role = st.checkbox(
+        "A는 Baseline, B는 실제 Project Candidate, C는 Sensitivity Case임을 확인했습니다.",
+        key="phase3_check_role",
+    )
+
+    check_limit = st.checkbox(
+        "Phase 3 결과는 coolant의 최종 적합성 또는 최적 농도를 자동 결정하지 않음을 확인했습니다.",
+        key="phase3_check_limit",
+    )
+
+    phase3_note = st.text_area(
+        "Engineer note",
+        key="phase3_note",
+        placeholder=(
+            "예: Project Candidate B의 요구유량이 Baseline 대비 증가함. "
+            "Phase 4에서 Pressure Drop 및 Pump Power 영향을 추가 비교."
+        ),
+    )
+
+    ready_phase3 = (
+        baseline_data_ready
+        and len(selected_analysis_cases) > 0
+        and check_comparison
+        and check_role
+        and check_limit
+    )
+
+    if st.button(
+        "✓ Approve Phase 3 Analysis Cases",
+        type="primary",
+        disabled=not ready_phase3,
+        use_container_width=True,
+    ):
+
+        # -----------------------------------
+        # Save Baseline
+        # -----------------------------------
+        st.session_state.phase3_baseline = {
+            "name": baseline_name,
+            "rho_kg_m3": float(
+                baseline_rho
+            ),
+            "cp_kj_kgk": float(
+                baseline_cp
+            ),
+            "mu_pa_s": float(
+                baseline_mu_pa_s
+            ),
+            "property_temp_c": float(
+                baseline_temp
+            ),
+            "source": baseline_source,
+        }
+
+        # -----------------------------------
+        # Save Sensitivity Case
+        # -----------------------------------
+        st.session_state.phase3_sensitivity = {
+            "name": sensitivity_name,
+            "rho_kg_m3": float(
+                sensitivity_rho
+            ),
+            "cp_kj_kgk": float(
+                sensitivity_cp
+            ),
+            "mu_pa_s": float(
+                sensitivity_mu_pa_s
+            ),
+            "property_temp_c": float(
+                sensitivity_temp
+            ),
+            "source": sensitivity_source,
+        }
+
+        # -----------------------------------
+        # Save Project Candidate
+        # -----------------------------------
+        if (
+            candidate_data_complete
+            and candidate_evidence_ready
+        ):
+            st.session_state.phase3_supplier_coolant = {
+                "name": candidate_name.strip(),
+                "rho_kg_m3": float(
+                    candidate_rho
+                ),
+                "cp_kj_kgk": float(
+                    candidate_cp
+                ),
+                "mu_pa_s": float(
+                    candidate_mu_pa_s
+                ),
+                "property_temp_c": float(
+                    candidate_temp
+                ),
+                "source": candidate_source.strip(),
+            }
+
+        st.session_state.phase3_analysis_cases = (
+            selected_analysis_cases
+        )
+
+        st.session_state.phase3_supply_t = (
+            supply_t
+        )
+
+        st.session_state.phase3_return_t = (
+            return_t
+        )
+
+        st.session_state.phase3_wetted_materials = (
+            wetted_materials
+        )
+
+        # -----------------------------------
+        # Temporary compatibility with
+        # existing Phase 4
+        # -----------------------------------
+        coolant_names = []
+
+        if (
+            "A · Baseline Reference"
+            in selected_analysis_cases
+            and baseline_mode
+            == "Default Pure-water Reference"
+        ):
+            coolant_names.append(
+                "Water-based reference"
+            )
+
+        if (
+            "C · PG30 Sensitivity"
+            in selected_analysis_cases
+        ):
+            coolant_names.append(
+                "PG30 sensitivity fluid"
+            )
+
+        st.session_state.coolant_names = (
+            coolant_names
+        )
+
+        st.session_state.approved[3] = True
+
+        st.success(
+            "Phase 3 approved. "
+            "선택된 coolant analysis cases가 Phase 4로 전달되었습니다."
+        )
+
+    if st.session_state.approved[3]:
+        st.success(
+            "✓ Phase 3 Engineer Review Approved"
+        )
 
 elif phase == 4:
     st.subheader("Phase 4 · Deterministic Hydraulic Calculation")
