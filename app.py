@@ -219,12 +219,17 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                     with st.spinner(
                         "AI is extracting engineering specification candidates..."
                     ):
-                        result = extract_specification(
+                    result = extract_specification(
                             file_bytes=uploaded_spec.getvalue(),
                             filename=uploaded_spec.name,
                             api_key=api_key,
-                        )
+                    )
+                    # Clear previous engineer-edit widget states
+                    for key in list(st.session_state.keys()):
+                        if key.startswith("ai_edit_") or key.startswith("ai_verify_"):
+                            st.session_state.pop(key, None)
 
+                    st.session_state.pop("ai_verified_spec", None)                    
                     st.session_state["ai_spec_result"] = result
 
                     st.success(
@@ -239,95 +244,508 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
 
     if "ai_spec_result" in st.session_state:
 
-        result = st.session_state[
-            "ai_spec_result"
-        ]
+    result = st.session_state["ai_spec_result"]
 
-        st.markdown(
-            "#### Extracted Specification Candidates"
+    # =========================================
+    # EXTRACTED RESULT
+    # =========================================
+    st.markdown(
+        "#### Extracted Specification Candidates"
+    )
+
+    summary_rows = [
+        ["Document Type", result.get("document_type"), ""],
+        ["Manufacturer", result.get("manufacturer"), ""],
+        ["Model", result.get("model"), ""],
+        ["Rated Power", result.get("rated_power_kw"), "kW"],
+        ["HCR", result.get("hcr"), ""],
+        ["Coolant", result.get("coolant_name"), ""],
+        ["Density", result.get("density_kg_m3"), "kg/m³"],
+        ["Specific Heat", result.get("cp_kj_kgk"), "kJ/kg·K"],
+        ["Viscosity", result.get("viscosity_mpas"), "mPa·s"],
+        ["Property Temperature", result.get("property_temp_c"), "°C"],
+        ["Supply Temp Min", result.get("supply_temp_min_c"), "°C"],
+        ["Supply Temp Max", result.get("supply_temp_max_c"), "°C"],
+        ["Recommended Flow", result.get("recommended_flow_lpm"), "L/min"],
+        ["Pressure Drop", result.get("pressure_drop_kpa"), "kPa"],
+    ]
+
+    normalized_rows = []
+
+    for field, value, unit in summary_rows:
+        normalized_rows.append(
+            {
+                "Field": field,
+                "Extracted Value": (
+                    value
+                    if value is not None
+                    else "Not found"
+                ),
+                "Unit": unit,
+            }
         )
 
-        summary_rows = [
-            ["Document Type", result.get("document_type")],
-            ["Manufacturer", result.get("manufacturer")],
-            ["Model", result.get("model")],
-            ["Rated Power", result.get("rated_power_kw"), "kW"],
-            ["HCR", result.get("hcr")],
-            ["Coolant", result.get("coolant_name")],
-            ["Density", result.get("density_kg_m3"), "kg/m³"],
-            ["Specific Heat", result.get("cp_kj_kgk"), "kJ/kg·K"],
-            ["Viscosity", result.get("viscosity_mpas"), "mPa·s"],
-            ["Property Temperature", result.get("property_temp_c"), "°C"],
-            ["Supply Temp Min", result.get("supply_temp_min_c"), "°C"],
-            ["Supply Temp Max", result.get("supply_temp_max_c"), "°C"],
-            ["Recommended Flow", result.get("recommended_flow_lpm"), "L/min"],
-            ["Pressure Drop", result.get("pressure_drop_kpa"), "kPa"],
-        ]
+    st.dataframe(
+        pd.DataFrame(normalized_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
 
-        normalized_rows = []
+    # =========================================
+    # SOURCE TRACEABILITY
+    # =========================================
+    sources = result.get(
+        "sources",
+        [],
+    )
 
-        for row in summary_rows:
-            if len(row) == 2:
-                field, value = row
-                unit = ""
-            else:
-                field, value, unit = row
-
-            normalized_rows.append(
-                {
-                    "Field": field,
-                    "Extracted Value": (
-                        value
-                        if value is not None
-                        else "Not found"
-                    ),
-                    "Unit": unit,
-                }
-            )
+    if sources:
+        st.markdown(
+            "#### Source Traceability"
+        )
 
         st.dataframe(
-            pd.DataFrame(normalized_rows),
+            pd.DataFrame(sources),
             use_container_width=True,
             hide_index=True,
         )
 
-        sources = result.get(
-            "sources",
-            [],
+    notes = result.get(
+        "notes",
+        [],
+    )
+
+    if notes:
+        st.markdown(
+            "#### AI Review Notes"
         )
 
-        if sources:
-            st.markdown(
-                "#### Source Traceability"
+        for note in notes:
+            st.write(
+                f"- {note}"
             )
 
-            st.dataframe(
-                pd.DataFrame(sources),
-                use_container_width=True,
-                hide_index=True,
-            )
+    st.warning(
+        "AI-extracted values are candidate inputs only. "
+        "They are not transferred to the deterministic workflow "
+        "until an engineer reviews and saves them."
+    )
 
-        notes = result.get(
-            "notes",
-            [],
+    # =========================================
+    # ENGINEER VERIFICATION
+    # =========================================
+    st.divider()
+
+    st.markdown(
+        "#### Engineer Verification"
+    )
+
+    st.caption(
+        "Review the source evidence above, correct any AI-extracted "
+        "value if necessary, and verify each applicable group."
+    )
+
+    def display_value(value):
+        if value is None:
+            return ""
+        return str(value)
+
+    def parse_optional_float(value, field_name):
+        value = value.strip()
+
+        if value == "":
+            return None
+
+        try:
+            return float(value)
+
+        except ValueError as exc:
+            raise ValueError(
+                f"{field_name} must be numeric or blank."
+            ) from exc
+
+    # -----------------------------------------
+    # Equipment / Rack Identity
+    # -----------------------------------------
+    st.markdown(
+        "##### A · Equipment / Rack"
+    )
+
+    e1, e2, e3 = st.columns(3)
+
+    with e1:
+        engineer_manufacturer = st.text_input(
+            "Manufacturer",
+            value=display_value(
+                result.get("manufacturer")
+            ),
+            key="ai_edit_manufacturer",
         )
 
-        if notes:
-            st.markdown(
-                "#### AI Review Notes"
+    with e2:
+        engineer_model = st.text_input(
+            "Model",
+            value=display_value(
+                result.get("model")
+            ),
+            key="ai_edit_model",
+        )
+
+    with e3:
+        engineer_document_type = st.text_input(
+            "Document Type",
+            value=display_value(
+                result.get("document_type")
+            ),
+            key="ai_edit_document_type",
+        )
+
+    e4, e5 = st.columns(2)
+
+    with e4:
+        engineer_power = st.text_input(
+            "Rated Power · kW",
+            value=display_value(
+                result.get("rated_power_kw")
+            ),
+            key="ai_edit_rated_power_kw",
+        )
+
+    with e5:
+        engineer_hcr = st.text_input(
+            "HCR · 0–1",
+            value=display_value(
+                result.get("hcr")
+            ),
+            key="ai_edit_hcr",
+        )
+
+    rack_group_present = any(
+        result.get(field) is not None
+        for field in [
+            "manufacturer",
+            "model",
+            "rated_power_kw",
+            "hcr",
+        ]
+    )
+
+    if rack_group_present:
+        verify_rack = st.checkbox(
+            "I verified the equipment identity, rated power and HCR against the source document.",
+            key="ai_verify_rack",
+        )
+    else:
+        verify_rack = True
+
+    # -----------------------------------------
+    # Coolant Properties
+    # -----------------------------------------
+    st.markdown(
+        "##### B · Coolant Properties"
+    )
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        engineer_coolant = st.text_input(
+            "Coolant / Formulation",
+            value=display_value(
+                result.get("coolant_name")
+            ),
+            key="ai_edit_coolant_name",
+        )
+
+        engineer_density = st.text_input(
+            "Density · kg/m³",
+            value=display_value(
+                result.get("density_kg_m3")
+            ),
+            key="ai_edit_density",
+        )
+
+        engineer_cp = st.text_input(
+            "Specific Heat · kJ/kg·K",
+            value=display_value(
+                result.get("cp_kj_kgk")
+            ),
+            key="ai_edit_cp",
+        )
+
+    with c2:
+        engineer_viscosity = st.text_input(
+            "Dynamic Viscosity · mPa·s",
+            value=display_value(
+                result.get("viscosity_mpas")
+            ),
+            key="ai_edit_viscosity",
+        )
+
+        engineer_property_temp = st.text_input(
+            "Property Reference Temperature · °C",
+            value=display_value(
+                result.get("property_temp_c")
+            ),
+            key="ai_edit_property_temp",
+        )
+
+    coolant_group_present = any(
+        result.get(field) is not None
+        for field in [
+            "coolant_name",
+            "density_kg_m3",
+            "cp_kj_kgk",
+            "viscosity_mpas",
+            "property_temp_c",
+        ]
+    )
+
+    if coolant_group_present:
+        verify_coolant = st.checkbox(
+            "I verified the coolant identity and thermophysical properties against the source document.",
+            key="ai_verify_coolant",
+        )
+    else:
+        verify_coolant = True
+
+    # -----------------------------------------
+    # Hydraulic / Operating Constraints
+    # -----------------------------------------
+    st.markdown(
+        "##### C · Operating / Hydraulic Data"
+    )
+
+    h1, h2 = st.columns(2)
+
+    with h1:
+        engineer_supply_min = st.text_input(
+            "Supply Temperature Min · °C",
+            value=display_value(
+                result.get("supply_temp_min_c")
+            ),
+            key="ai_edit_supply_min",
+        )
+
+        engineer_supply_max = st.text_input(
+            "Supply Temperature Max · °C",
+            value=display_value(
+                result.get("supply_temp_max_c")
+            ),
+            key="ai_edit_supply_max",
+        )
+
+    with h2:
+        engineer_flow = st.text_input(
+            "Recommended Flow · L/min",
+            value=display_value(
+                result.get("recommended_flow_lpm")
+            ),
+            key="ai_edit_flow",
+        )
+
+        engineer_dp = st.text_input(
+            "Pressure Drop · kPa",
+            value=display_value(
+                result.get("pressure_drop_kpa")
+            ),
+            key="ai_edit_dp",
+        )
+
+    hydraulic_group_present = any(
+        result.get(field) is not None
+        for field in [
+            "supply_temp_min_c",
+            "supply_temp_max_c",
+            "recommended_flow_lpm",
+            "pressure_drop_kpa",
+        ]
+    )
+
+    if hydraulic_group_present:
+        verify_hydraulic = st.checkbox(
+            "I verified the operating temperature, flow and pressure-drop conditions against the source document.",
+            key="ai_verify_hydraulic",
+        )
+    else:
+        verify_hydraulic = True
+
+    # =========================================
+    # SAVE VERIFIED SNAPSHOT
+    # =========================================
+    verification_ready = (
+        verify_rack
+        and verify_coolant
+        and verify_hydraulic
+    )
+
+    if st.button(
+        "✓ Save Engineer-Verified Specification",
+        type="primary",
+        disabled=not verification_ready,
+        key="save_ai_verified_spec",
+        use_container_width=True,
+    ):
+        try:
+            verified_power = parse_optional_float(
+                engineer_power,
+                "Rated Power",
             )
 
-            for note in notes:
-                st.write(
-                    f"- {note}"
+            verified_hcr = parse_optional_float(
+                engineer_hcr,
+                "HCR",
+            )
+
+            verified_density = parse_optional_float(
+                engineer_density,
+                "Density",
+            )
+
+            verified_cp = parse_optional_float(
+                engineer_cp,
+                "Specific Heat",
+            )
+
+            verified_viscosity = parse_optional_float(
+                engineer_viscosity,
+                "Dynamic Viscosity",
+            )
+
+            verified_property_temp = parse_optional_float(
+                engineer_property_temp,
+                "Property Reference Temperature",
+            )
+
+            verified_supply_min = parse_optional_float(
+                engineer_supply_min,
+                "Supply Temperature Min",
+            )
+
+            verified_supply_max = parse_optional_float(
+                engineer_supply_max,
+                "Supply Temperature Max",
+            )
+
+            verified_flow = parse_optional_float(
+                engineer_flow,
+                "Recommended Flow",
+            )
+
+            verified_dp = parse_optional_float(
+                engineer_dp,
+                "Pressure Drop",
+            )
+
+            # Basic engineering sanity checks
+            if (
+                verified_power is not None
+                and verified_power <= 0
+            ):
+                raise ValueError(
+                    "Rated Power must be greater than 0 kW."
                 )
 
-        st.warning(
-            "AI-extracted values are candidate inputs only. "
-            "Engineer verification is required before transfer "
-            "to the deterministic design workflow."
+            if (
+                verified_hcr is not None
+                and not 0 <= verified_hcr <= 1
+            ):
+                raise ValueError(
+                    "HCR must be between 0 and 1."
+                )
+
+            for field_name, field_value in [
+                ("Density", verified_density),
+                ("Specific Heat", verified_cp),
+                ("Dynamic Viscosity", verified_viscosity),
+                ("Recommended Flow", verified_flow),
+                ("Pressure Drop", verified_dp),
+            ]:
+                if (
+                    field_value is not None
+                    and field_value <= 0
+                ):
+                    raise ValueError(
+                        f"{field_name} must be greater than 0."
+                    )
+
+            if (
+                verified_supply_min is not None
+                and verified_supply_max is not None
+                and verified_supply_min > verified_supply_max
+            ):
+                raise ValueError(
+                    "Supply Temperature Min cannot be greater than Supply Temperature Max."
+                )
+
+            st.session_state["ai_verified_spec"] = {
+                "document_type": (
+                    engineer_document_type.strip()
+                    or None
+                ),
+                "manufacturer": (
+                    engineer_manufacturer.strip()
+                    or None
+                ),
+                "model": (
+                    engineer_model.strip()
+                    or None
+                ),
+                "rated_power_kw": verified_power,
+                "hcr": verified_hcr,
+                "coolant_name": (
+                    engineer_coolant.strip()
+                    or None
+                ),
+                "density_kg_m3": verified_density,
+                "cp_kj_kgk": verified_cp,
+                "viscosity_mpas": verified_viscosity,
+                "property_temp_c": verified_property_temp,
+                "supply_temp_min_c": verified_supply_min,
+                "supply_temp_max_c": verified_supply_max,
+                "recommended_flow_lpm": verified_flow,
+                "pressure_drop_kpa": verified_dp,
+                "sources": result.get(
+                    "sources",
+                    [],
+                ),
+                "ai_notes": result.get(
+                    "notes",
+                    [],
+                ),
+                "verified_at": datetime.now().strftime(
+                    "%Y-%m-%d %H:%M"
+                ),
+            }
+
+            st.success(
+                "Engineer-verified specification saved. "
+                "Only this verified snapshot will be eligible "
+                "for transfer to H-LiquidOpt."
+            )
+
+        except ValueError as e:
+            st.error(str(e))
+
+    # =========================================
+    # VERIFIED SNAPSHOT STATUS
+    # =========================================
+    if "ai_verified_spec" in st.session_state:
+        verified = st.session_state[
+            "ai_verified_spec"
+        ]
+
+        st.success(
+            "✓ ENGINEER VERIFIED · "
+            f"{verified.get('manufacturer') or 'Unknown manufacturer'} "
+            f"{verified.get('model') or ''}"
         )
 
+        st.caption(
+            f"Verified snapshot saved at "
+            f"{verified.get('verified_at', '-')}. "
+            "The original AI extraction remains separate "
+            "from the engineer-approved data."
+        )
     st.divider()
 
     if st.button(
