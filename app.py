@@ -459,6 +459,8 @@ if phase == 1:
             "Rack별 IT Power가 이미 산정된 경우 사용합니다. "
             "Rack Power, HCR, Pod 및 위치정보를 직접 입력합니다."
         )
+        
+        active_racks = st.session_state.racks
     else:
         st.caption(
             "Rack 내부 장비 구성과 수량을 입력하면 "
@@ -568,6 +570,65 @@ if phase == 1:
             use_container_width=True,
             hide_index=True,
         )
+        # -----------------------------------
+        # Convert equipment data to rack-level input
+        # -----------------------------------
+
+        equipment_calc["hcr_numeric"] = pd.to_numeric(
+            equipment_calc["hcr"],
+            errors="coerce",
+        ).fillna(0)
+
+        equipment_calc["liquid_design_kw"] = (
+            equipment_calc["design_power_kw"]
+            * equipment_calc["hcr_numeric"]
+        )
+
+        rack_level = (
+            equipment_calc
+            .groupby("rack_id", as_index=False)
+            .agg(
+                it_power_kw=("design_power_kw", "sum"),
+                liquid_design_kw=("liquid_design_kw", "sum"),
+                pod=("pod", "first"),
+                row=("row", "first"),
+                col=("col", "first"),
+            )
+        )
+
+        rack_level["hcr"] = rack_level.apply(
+            lambda x: (
+                x["liquid_design_kw"] / x["it_power_kw"]
+                if x["it_power_kw"] > 0
+                else 0.0
+            ),
+            axis=1,
+        )
+
+        detailed_racks = rack_level[
+            [
+                "rack_id",
+                "pod",
+                "it_power_kw",
+                "hcr",
+                "row",
+                "col",
+            ]
+        ].copy()
+
+        active_racks = detailed_racks
+         st.markdown("#### Generated Rack Design Input")
+
+        st.dataframe(
+            detailed_racks,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.caption(
+            "장비 구성으로부터 생성된 Rack-level 설계 입력값입니다. "
+            "이 데이터가 이후 Liquid/Air Heat Load 계산에 사용됩니다."
+        )
     c1, c2 = st.columns([1, 4])
 
     with c1:
@@ -579,7 +640,7 @@ if phase == 1:
             "Rack 수, IT Power, HCR, Pod 및 위치정보를 엔지니어가 검토할 수 있습니다."
         )
 
-    racks = st.session_state.racks
+    racks = active_racks
 
     rack_count = len(racks)
     pod_count = racks["pod"].nunique()
