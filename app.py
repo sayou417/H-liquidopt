@@ -1835,24 +1835,289 @@ elif phase == 3:
         "※ H-LiquidOpt는 coolant 농도를 자율적으로 결정하지 않습니다. "
         "허용 formulation 및 농도범위는 OEM·공급사 요구조건과 "
         "엔지니어 검토를 통해 확정합니다."
-    ) 
-    st.subheader("Phase 3 · Coolant & Material Candidate Review")
-    if not st.session_state.approved[2]:
-        st.warning("Phase 2 is pending. Coolant comparison remains exploratory.")
-    cdf = load_default_coolants()
-    st.dataframe(cdf, use_container_width=True, hide_index=True)
-    st.info("Only candidates with explicit numerical property inputs are sent to the hydraulic engine. OEM approval and material compatibility remain validation gates.")
-    selectable = cdf[cdf[["rho_kg_m3","cp_kj_kgk","mu_pa_s"]].notna().all(axis=1)]["name"].tolist()
-    default = [x for x in ["Water-based reference","PG30 sensitivity fluid"] if x in selectable]
-    selected = st.multiselect("Candidates for Phase 4 sensitivity calculation", selectable, default=default)
-    st.text_area("Material / OEM review note", key="phase3_note", placeholder="Example: supplier compatibility check required for QD seal.")
-    if st.button("✓ Approve Phase 3 candidates", type="primary"):
-        if not selected:
-            st.error("Select at least one quantitatively defined coolant candidate.")
+    )
+    # -----------------------------------
+    # 3C. MATERIAL & DATA VERIFICATION
+    # -----------------------------------
+    st.divider()
+
+    st.markdown("### 3C · Material & Data Verification")
+
+    v1, v2 = st.columns([1, 4])
+
+    with v1:
+        render_tag("REVIEW REQUIRED", "review")
+
+    with v2:
+        st.write(
+            "Coolant 후보의 실제 적용 가능성을 자동 확정하지 않고, "
+            "wetted material 구성과 OEM / supplier 근거자료 확보 여부를 확인합니다."
+        )
+
+    st.markdown("#### Wetted Materials")
+
+    wetted_materials = st.multiselect(
+        "Materials in contact with coolant",
+        [
+            "Copper / Copper Alloy",
+            "Stainless Steel",
+            "Aluminum / Aluminum Alloy",
+            "EPDM",
+            "FKM",
+            "NBR",
+            "Engineering Plastics",
+            "Other",
+        ],
+        default=[
+            "Copper / Copper Alloy",
+            "Stainless Steel",
+            "EPDM",
+        ],
+        key="phase3_wetted_materials",
+    )
+
+    if "Copper / Copper Alloy" in wetted_materials and \
+       "Aluminum / Aluminum Alloy" in wetted_materials:
+
+        st.warning(
+            "Cu계와 Al계 재질이 동일 coolant loop에 포함되어 있습니다. "
+            "본 조합을 자동 Reject하지는 않지만, galvanic corrosion 위험과 "
+            "coolant inhibitor / supplier compatibility 자료를 별도로 확인해야 합니다."
+        )
+
+    st.caption(
+        "※ 재질 목록만으로 compatibility를 확정하지 않습니다. "
+        "실제 판정에는 coolant supplier의 compatibility data와 "
+        "시스템 재질·온도·농도 조건 검토가 필요합니다."
+    )
+    st.markdown("#### Verification Evidence")
+
+    if coolant_choice.startswith("B"):
+        st.info(
+            "실제 프로젝트 적용 후보가 선택되었습니다. "
+            "아래 근거자료 확인이 완료되어야 Phase 3 승인이 가능합니다."
+        )
+        st.markdown("#### Supplier Property Input")
+
+        st.caption(
+            "공급사/OEM 자료에서 확인한 설계온도 기준 물성값을 직접 입력합니다. "
+            "H-LiquidOpt가 임의로 생성하는 값이 아닙니다."
+        )
+
+        p1, p2, p3 = st.columns(3)
+
+        with p1:
+            supplier_rho = st.number_input(
+                "Density (kg/m³)",
+                min_value=1.0,
+                value=1030.0,
+                step=1.0,
+                key="phase3_supplier_rho",
+            )
+
+        with p2:
+            supplier_cp = st.number_input(
+                "Cp (kJ/kg·K)",
+                min_value=0.1,
+                value=3.80,
+                step=0.01,
+                key="phase3_supplier_cp",
+            )
+
+        with p3:
+            supplier_mu_mpas = st.number_input(
+                "Dynamic Viscosity (mPa·s)",
+                min_value=0.01,
+                value=1.60,
+                step=0.01,
+                key="phase3_supplier_mu_mpas",
+            )
+
+        supplier_property_temp = st.number_input(
+            "Property Reference Temperature (°C)",
+            value=float((supply_t + return_t) / 2),
+            step=1.0,
+            key="phase3_supplier_property_temp",
+        )
+
+        supplier_name = st.text_input(
+            "Coolant / Formulation Name",
+            placeholder="예: Supplier Product ABC, approved formulation",
+            key="phase3_supplier_name",
+        )
+        supplier_properties_ready = (
+            bool(supplier_name.strip())
+            and supplier_rho > 0
+            and supplier_cp > 0
+            and supplier_mu_mpas > 0
+        )
+        check_oem = st.checkbox(
+            "OEM이 해당 coolant / formulation의 사용을 허용함을 확인했습니다.",
+            key="phase3_check_oem",
+        )
+
+        check_properties = st.checkbox(
+            "설계온도 범위의 Density, Cp, Viscosity 등 supplier 물성자료를 확인했습니다.",
+            key="phase3_check_properties",
+        )
+
+        check_material = st.checkbox(
+            "Wetted-material compatibility 자료를 확인했습니다.",
+            key="phase3_check_material",
+        )
+
+        coolant_data_ready = (
+            check_oem
+            and check_properties
+            and check_material
+            and supplier_properties_ready
+        )
+
+        if coolant_data_ready:
+            st.success(
+                "Required evidence · VERIFIED FOR ENGINEERING REVIEW"
+            )
         else:
-            st.session_state.coolant_names = selected
-            st.session_state.approved[3] = True
-            st.success("Phase 3 candidates saved.")
+            st.warning(
+                "Required evidence · INCOMPLETE"
+            )
+
+    else:
+        coolant_data_ready = True
+
+        st.warning(
+            "현재 선택안은 실제 프로젝트 coolant 승인안이 아닙니다. "
+            "Reference 또는 Sensitivity 분석 목적으로만 다음 Phase에 전달됩니다."
+        )
+    st.markdown("#### Screening Result")
+
+    if coolant_choice.startswith("A"):
+        screening_status = "REFERENCE ANALYSIS BASIS"
+
+        st.info(
+            "Water-based Reference는 비교 기준으로 사용할 수 있습니다. "
+            "실제 프로젝트 적용 승인으로 해석하지 않습니다."
+        )
+
+    elif coolant_choice.startswith("B"):
+        if coolant_data_ready:
+            screening_status = "CONDITIONALLY VERIFIED PROJECT CANDIDATE"
+
+            st.success(
+                "OEM / supplier 근거자료가 확인된 프로젝트 후보로 "
+                "후속 Engineering Review에 전달할 수 있습니다."
+            )
+
+        else:
+            screening_status = "EVIDENCE REQUIRED"
+
+            st.error(
+                "실제 프로젝트 적용 후보로 사용하기 위한 근거자료가 부족합니다."
+            )
+
+    else:
+        screening_status = "SENSITIVITY ANALYSIS BASIS"
+
+        st.info(
+            "PG30은 Hydraulic sensitivity 분석용 케이스입니다. "
+            "실제 coolant 선정안으로 사용하지 않습니다."
+        )
+
+    st.write(f"**Screening status:** {screening_status}")    
+    # -----------------------------------
+    # 3D. ENGINEER REVIEW
+    # -----------------------------------
+    st.divider()
+
+    st.markdown("### 3D · Engineer Review")
+
+    r1, r2 = st.columns([1, 4])
+
+    with r1:
+        render_tag("REVIEW REQUIRED", "review")
+
+    with r2:
+        st.write(
+            "선택된 coolant 후보의 사용 목적과 근거자료 수준을 확인한 후 "
+            "Phase 4 Hydraulic 계산에 사용할 분석 기준을 승인합니다."
+        )
+
+    check_purpose = st.checkbox(
+        "선택한 coolant의 목적이 실제 적용 후보인지 Reference / Sensitivity 분석용인지 확인했습니다.",
+        key="phase3_check_purpose",
+    )
+
+    check_conditions = st.checkbox(
+        "현재 Supply / Return Temperature가 설계 입력조건이며 OEM 허용조건을 의미하지 않음을 확인했습니다.",
+        key="phase3_check_conditions",
+    )
+
+    check_compatibility = st.checkbox(
+        "Wetted-material compatibility는 공급사/OEM 자료를 기준으로 최종 검토해야 함을 확인했습니다.",
+        key="phase3_check_compatibility",
+    )
+
+    phase3_note = st.text_area(
+        "Engineer note",
+        key="phase3_note",
+        placeholder=(
+            "예: Water-based reference를 Phase 4 baseline으로 사용하고, "
+            "PG30 sensitivity case와 유량 및 Pump Power 차이를 비교."
+        ),
+    )
+
+    ready_phase3 = (
+        check_purpose
+        and check_conditions
+        and check_compatibility
+        and coolant_data_ready
+    )
+
+    if st.button(
+        "✓ Approve Phase 3 Analysis Basis",
+        type="primary",
+        disabled=not ready_phase3,
+        use_container_width=True,
+    ):
+        st.session_state.coolant_choice = coolant_choice
+        st.session_state.coolant_screening_status = screening_status
+        st.session_state.phase3_wetted_materials = wetted_materials
+        st.session_state.phase3_supply_t = supply_t
+        st.session_state.phase3_return_t = return_t
+        if coolant_choice.startswith("B"):
+            st.session_state.phase3_supplier_coolant = {
+                "name": supplier_name.strip(),
+                "rho_kg_m3": float(supplier_rho),
+                "cp_kj_kgk": float(supplier_cp),
+                "mu_pa_s": float(supplier_mu_mpas) / 1000.0,
+                "property_temp_c": float(supplier_property_temp),
+            }
+        # Phase 4 hydraulic engine compatibility
+        if coolant_choice.startswith("A"):
+            st.session_state.coolant_names = [
+                "Water-based reference"
+            ]
+
+        elif coolant_choice.startswith("C"):
+            st.session_state.coolant_names = [
+                "PG30 sensitivity fluid"
+            ]
+
+        else:
+            st.session_state.coolant_names = []
+        
+        st.session_state.approved[3] = True
+
+        st.success(
+            f"Phase 3 approved · {coolant_choice}. "
+            "승인된 coolant analysis basis가 Phase 4로 전달됩니다."
+        )
+
+    if st.session_state.approved[3]:
+        st.success(
+            f"✓ Phase 3 Engineer Review Approved · "
+            f"{st.session_state.get('coolant_choice', coolant_choice)}"
+        )
 
 elif phase == 4:
     st.subheader("Phase 4 · Deterministic Hydraulic Calculation")
