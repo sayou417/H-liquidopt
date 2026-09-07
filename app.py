@@ -17,7 +17,10 @@ from engine import (
     recommended_duty_cdus,
 )
 
-from ai_adapter import test_openai_connection
+from ai_adapter import (
+    test_openai_connection,
+    extract_specification,
+)
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
@@ -168,31 +171,179 @@ def render_tag(text, kind="info"):
 st.title("H-LiquidOpt")
 st.caption("Human-in-the-Loop · D2C liquid-cooling preliminary design support prototype")
 # =========================================
-# TEMPORARY OPENAI CONNECTION TEST
+# AI SPECIFICATION ASSISTANT
 # =========================================
-with st.expander("🔌 AI Connection Test", expanded=False):
+with st.expander("🤖 AI Specification Assistant", expanded=False):
+
     st.caption(
-        "Temporary diagnostic tool for checking the OpenAI API connection."
+        "Upload an OEM datasheet, rack specification, CDU datasheet, "
+        "or coolant datasheet. AI extracts candidate engineering inputs "
+        "for engineer verification."
     )
+
+    uploaded_spec = st.file_uploader(
+        "Upload specification PDF",
+        type=["pdf"],
+        key="ai_spec_pdf",
+    )
+
+    authorized = st.checkbox(
+        "I confirm that I am authorized to process this document.",
+        key="ai_spec_authorized",
+    )
+
+    if uploaded_spec is not None:
+        st.write(
+            f"**Selected file:** {uploaded_spec.name}"
+        )
+
+        analyze_disabled = not authorized
+
+        if st.button(
+            "Analyze Specification",
+            type="primary",
+            disabled=analyze_disabled,
+            key="analyze_specification_button",
+        ):
+            try:
+                api_key = st.secrets.get(
+                    "OPENAI_API_KEY"
+                )
+
+                if not api_key:
+                    st.error(
+                        "OPENAI_API_KEY was not found in Streamlit Secrets."
+                    )
+
+                else:
+                    with st.spinner(
+                        "AI is extracting engineering specification candidates..."
+                    ):
+                        result = extract_specification(
+                            file_bytes=uploaded_spec.getvalue(),
+                            filename=uploaded_spec.name,
+                            api_key=api_key,
+                        )
+
+                    st.session_state["ai_spec_result"] = result
+
+                    st.success(
+                        "Specification extraction completed. "
+                        "Review all values before using them."
+                    )
+
+            except Exception as e:
+                st.error(
+                    f"Specification extraction failed: {e}"
+                )
+
+    if "ai_spec_result" in st.session_state:
+
+        result = st.session_state[
+            "ai_spec_result"
+        ]
+
+        st.markdown(
+            "#### Extracted Specification Candidates"
+        )
+
+        summary_rows = [
+            ["Document Type", result.get("document_type")],
+            ["Manufacturer", result.get("manufacturer")],
+            ["Model", result.get("model")],
+            ["Rated Power", result.get("rated_power_kw"), "kW"],
+            ["HCR", result.get("hcr")],
+            ["Coolant", result.get("coolant_name")],
+            ["Density", result.get("density_kg_m3"), "kg/m³"],
+            ["Specific Heat", result.get("cp_kj_kgk"), "kJ/kg·K"],
+            ["Viscosity", result.get("viscosity_mpas"), "mPa·s"],
+            ["Property Temperature", result.get("property_temp_c"), "°C"],
+            ["Supply Temp Min", result.get("supply_temp_min_c"), "°C"],
+            ["Supply Temp Max", result.get("supply_temp_max_c"), "°C"],
+            ["Recommended Flow", result.get("recommended_flow_lpm"), "L/min"],
+            ["Pressure Drop", result.get("pressure_drop_kpa"), "kPa"],
+        ]
+
+        normalized_rows = []
+
+        for row in summary_rows:
+            if len(row) == 2:
+                field, value = row
+                unit = ""
+            else:
+                field, value, unit = row
+
+            normalized_rows.append(
+                {
+                    "Field": field,
+                    "Extracted Value": (
+                        value
+                        if value is not None
+                        else "Not found"
+                    ),
+                    "Unit": unit,
+                }
+            )
+
+        st.dataframe(
+            pd.DataFrame(normalized_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        sources = result.get(
+            "sources",
+            [],
+        )
+
+        if sources:
+            st.markdown(
+                "#### Source Traceability"
+            )
+
+            st.dataframe(
+                pd.DataFrame(sources),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        notes = result.get(
+            "notes",
+            [],
+        )
+
+        if notes:
+            st.markdown(
+                "#### AI Review Notes"
+            )
+
+            for note in notes:
+                st.write(
+                    f"- {note}"
+                )
+
+        st.warning(
+            "AI-extracted values are candidate inputs only. "
+            "Engineer verification is required before transfer "
+            "to the deterministic design workflow."
+        )
+
+    st.divider()
 
     if st.button(
         "Test OpenAI Connection",
         key="test_openai_connection_button",
     ):
         try:
-            api_key = st.secrets.get("OPENAI_API_KEY")
+            api_key = st.secrets.get(
+                "OPENAI_API_KEY"
+            )
 
-            if not api_key:
-                st.error(
-                    "OPENAI_API_KEY was not found in Streamlit Secrets."
-                )
-            else:
-                with st.spinner("Connecting to OpenAI..."):
-                    result = test_openai_connection(
-                        api_key=api_key
-                    )
+            result = test_openai_connection(
+                api_key=api_key
+            )
 
-                st.success(result)
+            st.success(result)
 
         except Exception as e:
             st.error(
