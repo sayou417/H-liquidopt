@@ -5793,35 +5793,35 @@ if checks:
         "overwrite source-page information."
     )
             
-            missing = ai_review.get(
-                "missing_verifications",
-                [],
-            )
+missing = ai_review.get(
+    "missing_verifications",
+    [],
+)
 
-            if missing:
-                st.markdown(
-                    "#### Missing / Remaining Verification"
-                )
+if missing:
+    st.markdown(
+        "#### Missing / Remaining Verification"
+    )
 
-                for item in missing:
-                    st.write(
-                        f"- {item}"
-                    )
+    for item in missing:
+        st.write(
+            f"- {item}"
+        )
 
-            next_actions = ai_review.get(
-                "next_actions",
-                [],
-            )
+next_actions = ai_review.get(
+    "next_actions",
+    [],
+)
 
-            if next_actions:
-                st.markdown(
-                    "#### Recommended Next Engineering Checks"
-                )
+if next_actions:
+    st.markdown(
+        "#### Recommended Next Engineering Checks"
+    )
 
-                for item in next_actions:
-                    st.write(
-                        f"- {item}"
-                    )
+    for item in next_actions:
+        st.write(
+            f"- {item}"
+        )
 
             st.warning(
                 "AI Cross-Check는 설계 승인 또는 안전 인증이 아닙니다. "
