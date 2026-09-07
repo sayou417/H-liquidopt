@@ -464,7 +464,110 @@ if phase == 1:
             "Rack 내부 장비 구성과 수량을 입력하면 "
             "장비별 설계전력을 합산하여 Rack Power를 자동 산정합니다."
         )
+        # -----------------------------------
+        # Detailed Equipment Input
+        # -----------------------------------
+        if "equipment_input" not in st.session_state:
+            st.session_state.equipment_input = pd.DataFrame(
+                [
+                    {
+                        "rack_id": "R01",
+                        "equipment": "GPU Server",
+                        "quantity": 8,
+                        "rated_power_kw": 10.2,
+                        "load_factor": 1.00,
+                        "hcr": 0.85,
+                        "pod": "A",
+                        "row": 1,
+                        "col": 1,
+                    },
+                    {
+                        "rack_id": "R01",
+                        "equipment": "Network Switch",
+                        "quantity": 2,
+                        "rated_power_kw": 1.0,
+                        "load_factor": 1.00,
+                        "hcr": 0.85,
+                        "pod": "A",
+                        "row": 1,
+                        "col": 1,
+                    },
+                ]
+            )
 
+        st.markdown("#### Equipment Configuration")
+
+        edited_equipment = st.data_editor(
+            st.session_state.equipment_input,
+            use_container_width=True,
+            num_rows="dynamic",
+            column_config={
+                "quantity": st.column_config.NumberColumn(
+                    "Qty",
+                    min_value=0,
+                    step=1,
+                ),
+                "rated_power_kw": st.column_config.NumberColumn(
+                    "Rated Power (kW/unit)",
+                    min_value=0.0,
+                    step=0.1,
+                    format="%.2f",
+                ),
+                "load_factor": st.column_config.NumberColumn(
+                    "Load Factor",
+                    min_value=0.0,
+                    max_value=1.0,
+                    step=0.05,
+                    format="%.2f",
+                ),
+                "hcr": st.column_config.NumberColumn(
+                    "HCR",
+                    min_value=0.0,
+                    max_value=1.0,
+                    step=0.01,
+                    format="%.2f",
+                ),
+            },
+            key="equipment_editor",
+        )
+
+        st.session_state.equipment_input = edited_equipment
+
+        equipment_calc = edited_equipment.copy()
+
+        equipment_calc["design_power_kw"] = (
+            pd.to_numeric(
+                equipment_calc["quantity"],
+                errors="coerce",
+            ).fillna(0)
+            * pd.to_numeric(
+                equipment_calc["rated_power_kw"],
+                errors="coerce",
+            ).fillna(0)
+            * pd.to_numeric(
+                equipment_calc["load_factor"],
+                errors="coerce",
+            ).fillna(0)
+        )
+
+        rack_power_summary = (
+            equipment_calc
+            .groupby("rack_id", as_index=False)["design_power_kw"]
+            .sum()
+            .rename(
+                columns={
+                    "design_power_kw": "rack_power_kw"
+                }
+            )
+        )
+
+        st.markdown("#### Calculated Rack Power")
+
+        st.dataframe(
+            rack_power_summary,
+            use_container_width=True,
+            hide_index=True,
+        )
     c1, c2 = st.columns([1, 4])
 
     with c1:
