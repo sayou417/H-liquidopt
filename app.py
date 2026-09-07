@@ -22,8 +22,15 @@ from ai_adapter import test_openai_connection
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 
-st.set_page_config(page_title="H-LiquidOpt", page_icon="💧", layout="wide")
-# Temporary OpenAI API connection test
+st.set_page_config(
+    page_title="H-LiquidOpt",
+    page_icon="💧",
+    layout="wide",
+)
+
+# =========================================
+# TEMPORARY OPENAI CONNECTION TEST
+# =========================================
 with st.expander("🔌 AI Connection Test", expanded=False):
     st.caption(
         "Temporary diagnostic tool for checking the OpenAI API connection."
@@ -52,6 +59,8 @@ with st.expander("🔌 AI Connection Test", expanded=False):
             st.error(
                 f"OpenAI connection failed: {e}"
             )
+
+
 st.markdown("""
 <style>
 .block-container {padding-top: 1.25rem; max-width: 1500px;}
