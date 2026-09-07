@@ -4649,6 +4649,245 @@ elif phase == 4:
     )
 
     # ===================================
+    # 4D-1 · PIPE DIAMETER SENSITIVITY
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 4D-1 · Pipe Diameter Sensitivity"
+    )
+
+    st.caption(
+        "현재 입력된 Common / Row Header / Rack Branch 내부직경을 기준으로 "
+        "배관 직경을 비례 변화시켜 Coolant별 Hydraulic 영향을 비교합니다. "
+        "본 비교는 배관 sizing sensitivity이며 표준 DN 또는 최종 관경 추천을 의미하지 않습니다."
+    )
+
+    render_tag(
+        "CALCULATED",
+        "calculated",
+    )
+
+    # Current geometry를 기준으로 비례 변화
+    diameter_scale_cases = [
+        ("80% of Current", 0.80),
+        ("90% of Current", 0.90),
+        ("Current", 1.00),
+        ("110% of Current", 1.10),
+        ("120% of Current", 1.20),
+    ]
+
+    sensitivity_frames = []
+
+    for scenario_name, scale in diameter_scale_cases:
+
+        sensitivity_geom = HydraulicGeometry(
+            common_length_m=common_l,
+            common_diameter_m=common_d * scale,
+            row_length_m=row_l,
+            row_diameter_m=row_d * scale,
+            branch_length_m=branch_l,
+            branch_diameter_m=branch_d * scale,
+            rack_dp_reference_kpa=rack_dp,
+        )
+
+        sensitivity_result = evaluate_coolants(
+            phase4_racks,
+            coolants,
+            phase4_delta_t,
+            sensitivity_geom,
+        )
+
+        if sensitivity_result.empty:
+            continue
+
+        scenario_summary = (
+            sensitivity_result
+            .groupby(
+                "coolant",
+                as_index=False,
+            )
+            .agg(
+                Max_Branch_Velocity_m_s=(
+                    "branch_velocity_m_s",
+                    "max",
+                ),
+                Worst_Total_DP_kPa=(
+                    "total_dp_kpa",
+                    "max",
+                ),
+                Total_Pump_kW=(
+                    "pump_kw",
+                    "sum",
+                ),
+            )
+        )
+
+        scenario_summary[
+            "Pipe Scenario"
+        ] = scenario_name
+
+        scenario_summary[
+            "Diameter Scale"
+        ] = scale
+
+        scenario_summary[
+            "Common ID mm"
+        ] = common_d * scale * 1000
+
+        scenario_summary[
+            "Row Header ID mm"
+        ] = row_d * scale * 1000
+
+        scenario_summary[
+            "Rack Branch ID mm"
+        ] = branch_d * scale * 1000
+
+        sensitivity_frames.append(
+            scenario_summary
+        )
+
+    if sensitivity_frames:
+
+        pipe_sensitivity = pd.concat(
+            sensitivity_frames,
+            ignore_index=True,
+        )
+
+        # -----------------------------------
+        # Relative change vs Current
+        # -----------------------------------
+        current_case = pipe_sensitivity[
+            pipe_sensitivity[
+                "Diameter Scale"
+            ] == 1.00
+        ].copy()
+
+        current_reference = (
+            current_case[
+                [
+                    "coolant",
+                    "Worst_Total_DP_kPa",
+                    "Total_Pump_kW",
+                ]
+            ]
+            .rename(
+                columns={
+                    "Worst_Total_DP_kPa":
+                        "Current_DP_kPa",
+                    "Total_Pump_kW":
+                        "Current_Pump_kW",
+                }
+            )
+        )
+
+        pipe_sensitivity = (
+            pipe_sensitivity.merge(
+                current_reference,
+                on="coolant",
+                how="left",
+            )
+        )
+
+        pipe_sensitivity[
+            "ΔP vs Current %"
+        ] = (
+            (
+                pipe_sensitivity[
+                    "Worst_Total_DP_kPa"
+                ]
+                / pipe_sensitivity[
+                    "Current_DP_kPa"
+                ]
+            )
+            - 1
+        ) * 100
+
+        pipe_sensitivity[
+            "Pump vs Current %"
+        ] = (
+            (
+                pipe_sensitivity[
+                    "Total_Pump_kW"
+                ]
+                / pipe_sensitivity[
+                    "Current_Pump_kW"
+                ]
+            )
+            - 1
+        ) * 100
+
+        sensitivity_display_cols = [
+            "coolant",
+            "Pipe Scenario",
+            "Common ID mm",
+            "Row Header ID mm",
+            "Rack Branch ID mm",
+            "Max_Branch_Velocity_m_s",
+            "Worst_Total_DP_kPa",
+            "Total_Pump_kW",
+            "ΔP vs Current %",
+            "Pump vs Current %",
+        ]
+
+        st.dataframe(
+            pipe_sensitivity[
+                sensitivity_display_cols
+            ].style.format(
+                {
+                    "Common ID mm": "{:.1f}",
+                    "Row Header ID mm": "{:.1f}",
+                    "Rack Branch ID mm": "{:.1f}",
+                    "Max_Branch_Velocity_m_s": "{:.2f}",
+                    "Worst_Total_DP_kPa": "{:.1f}",
+                    "Total_Pump_kW": "{:.2f}",
+                    "ΔP vs Current %": "{:+.1f}%",
+                    "Pump vs Current %": "{:+.1f}%",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # -----------------------------------
+        # Visual trade-off
+        # -----------------------------------
+        fig_pipe = px.line(
+            pipe_sensitivity,
+            x="Rack Branch ID mm",
+            y="Total_Pump_kW",
+            color="coolant",
+            markers=True,
+            title="Pipe Diameter Sensitivity · Pump Power",
+        )
+
+        st.plotly_chart(
+            fig_pipe,
+            use_container_width=True,
+        )
+
+        st.info(
+            "관경 증가 → 일반적으로 유속 및 배관 마찰손실 감소 → Pump Power 감소 방향으로 작용합니다. "
+            "반대로 관경 증가는 배관 CAPEX, 설치공간 및 자재량 증가를 유발할 수 있으나 "
+            "현재 PoC에는 해당 경제성 항목이 포함되어 있지 않습니다."
+        )
+
+        st.warning(
+            "본 Sensitivity 결과만으로 최종 Pipe Diameter를 선정하지 않습니다. "
+            "실제 설계에서는 프로젝트별 허용 유속·압력손실, 실제 배관 규격, "
+            "fitting/minor loss, routing 및 경제성 검토가 추가로 필요합니다."
+        )
+
+        # Phase 4 approval 시 저장할 수 있도록 임시 보관
+        st.session_state[
+            "phase4_pipe_sensitivity_current"
+        ] = pipe_sensitivity.copy()
+
+    else:
+        st.warning(
+            "Pipe diameter sensitivity result could not be generated."
+        )
+    # ===================================
     # 4E · ENGINEERING CONSTRAINT REVIEW
     # ===================================
     st.divider()
@@ -4738,7 +4977,16 @@ elif phase == 4:
         st.session_state.hydraulic_summary = (
             hydraulic_summary.copy()
         )
-
+        
+        if (
+            "phase4_pipe_sensitivity_current"
+            in st.session_state
+        ):
+            st.session_state[
+                "phase4_pipe_sensitivity"
+            ] = st.session_state[
+                "phase4_pipe_sensitivity_current"
+            ].copy()
         st.session_state.phase4_delta_t = (
             phase4_delta_t
         )
