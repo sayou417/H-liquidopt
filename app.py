@@ -5668,7 +5668,7 @@ elif phase == 5:
     # ===================================
     # FALLBACK · No pipe sensitivity
     # ===================================
-     else:
+    else:
         st.warning(
             "Approved Pipe Diameter Sensitivity result가 없습니다. "
             "Phase 4에서 sensitivity calculation을 승인한 뒤 "
