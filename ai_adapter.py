@@ -1,12 +1,15 @@
 import base64
+import io
 import json
 import os
 
+import openai
 from openai import OpenAI
+from pypdf import PdfReader
 
 
 DEFAULT_MODEL = "gpt-5.6-luna"
-
+MAX_PDF_BYTES = 50 * 1024 * 1024
 
 # =========================================================
 # OpenAI Client
@@ -172,7 +175,67 @@ SPEC_SCHEMA = {
     "additionalProperties": False
 }
 
+# =========================================================
+# PDF Validation
+# =========================================================
+def validate_pdf(file_bytes, filename):
+    """
+    Validate an uploaded PDF before sending it to the AI API.
+    """
 
+    if not filename:
+        raise ValueError(
+            "File name is missing."
+        )
+
+    if not filename.lower().endswith(".pdf"):
+        raise ValueError(
+            "Only PDF files are supported."
+        )
+
+    if not file_bytes:
+        raise ValueError(
+            "The uploaded PDF is empty."
+        )
+
+    if len(file_bytes) >= MAX_PDF_BYTES:
+        size_mb = len(file_bytes) / (1024 * 1024)
+
+        raise ValueError(
+            f"The PDF is {size_mb:.1f} MB. "
+            "Please upload a file smaller than 50 MB."
+        )
+
+    if not file_bytes.startswith(b"%PDF"):
+        raise ValueError(
+            "The uploaded file does not appear to be a valid PDF."
+        )
+
+    try:
+        reader = PdfReader(
+            io.BytesIO(file_bytes)
+        )
+
+    except Exception as exc:
+        raise ValueError(
+            "The PDF appears to be damaged or unreadable."
+        ) from exc
+
+    if reader.is_encrypted:
+        raise ValueError(
+            "Password-protected or encrypted PDFs are not supported. "
+            "Please upload an unlocked copy."
+        )
+
+    if len(reader.pages) == 0:
+        raise ValueError(
+            "The PDF contains no readable pages."
+        )
+
+    return {
+        "page_count": len(reader.pages),
+        "size_mb": len(file_bytes) / (1024 * 1024),
+    }
 # =========================================================
 # AI Specification Extraction
 # =========================================================
@@ -195,15 +258,10 @@ def extract_specification(
     - determine final equipment suitability
     """
 
-    if not filename.lower().endswith(".pdf"):
-        raise ValueError(
-            "Currently, AI Specification Assistant supports PDF files only."
-        )
-
-    if not file_bytes:
-        raise ValueError(
-            "Uploaded PDF is empty."
-        )
+    validate_pdf(
+        file_bytes,
+        filename,
+    )
 
     client = get_openai_client(api_key)
 
@@ -288,35 +346,76 @@ before any value is transferred into the H-LiquidOpt
 deterministic calculation workflow.
 """
 
-    response = client.responses.create(
-        model=DEFAULT_MODEL,
+    try:
+        response = client.responses.create(
+            model=DEFAULT_MODEL,
 
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_file",
-                        "filename": filename,
-                        "file_data": encoded_file,
-                    },
-                    {
-                        "type": "input_text",
-                        "text": instructions,
-                    },
-                ],
-            }
-        ],
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_file",
+                            "filename": filename,
+                            "file_data": (
+                                f"data:application/pdf;base64,{encoded_file}"
+                            ),
+                        },
+                        {
+                            "type": "input_text",
+                            "text": instructions,
+                        },
+                    ],
+                }
+            ],
 
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "hliquidopt_specification",
-                "strict": True,
-                "schema": SPEC_SCHEMA,
-            }
-        },
-    )
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "hliquidopt_specification",
+                    "strict": True,
+                    "schema": SPEC_SCHEMA,
+                }
+            },
+        )
+
+    except openai.AuthenticationError as exc:
+        raise RuntimeError(
+            "OpenAI authentication failed. "
+            "Check the API key configured in Streamlit Secrets."
+        ) from exc
+
+    except openai.RateLimitError as exc:
+        raise RuntimeError(
+            "The AI service is temporarily rate-limited "
+            "or the API usage quota has been reached. "
+            "Please try again later or check API billing."
+        ) from exc
+
+    except openai.APITimeoutError as exc:
+        raise RuntimeError(
+            "The AI analysis timed out. "
+            "Try again or use a smaller PDF."
+        ) from exc
+
+    except openai.APIConnectionError as exc:
+        raise RuntimeError(
+            "Could not connect to the AI service. "
+            "Please check the connection and try again."
+        ) from exc
+
+    except openai.BadRequestError as exc:
+        raise RuntimeError(
+            "The AI service could not process this PDF. "
+            "The document may be unsupported, malformed, "
+            "or contain content that cannot be processed."
+        ) from exc
+
+    except openai.APIStatusError as exc:
+        raise RuntimeError(
+            f"The AI service returned an unexpected error "
+            f"(HTTP {exc.status_code}). Please try again."
+        ) from exc
 
     if not response.output_text:
         raise RuntimeError(
