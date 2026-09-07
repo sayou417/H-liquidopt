@@ -5114,121 +5114,331 @@ elif phase == 5:
     )
 
     # ===================================
-    # 5B · HYDRAULIC CASE COMPARISON
+    # 5B · COOLANT × PIPE SCENARIO COMPARISON
     # ===================================
     st.divider()
 
     st.markdown(
-        "### 5B · Hydraulic Case Comparison"
+        "### 5B · Coolant × Pipe Scenario Comparison"
     )
 
+    st.caption(
+        "Phase 4에서 승인된 coolant별 hydraulic 결과와 "
+        "Pipe Diameter Sensitivity를 통합하여 후속 상세설계 후보를 비교합니다."
+    )
+
+    # Keep legacy coolant ranking for report/export compatibility
     ranking = candidate_score_table(
         phase5_results,
         phase5_cdu_capacity,
     )
 
-    ranking_cols = [
-        "rank",
-        "coolant",
-        "total_pump_kw",
-        "worst_dp_kpa",
-        "cdu_loading_pct",
-        "balanced_score",
-    ]
-
-    ranking_cols = [
-        col
-        for col in ranking_cols
-        if col in ranking.columns
-    ]
-
-    st.dataframe(
-        ranking[ranking_cols],
-        use_container_width=True,
-        hide_index=True,
+    pipe_sensitivity = st.session_state.get(
+        "phase4_pipe_sensitivity"
     )
 
-    if not ranking.empty:
-        first_case = ranking.iloc[0]
-
-        st.info(
-            f"현재 정의된 hydraulic composite score에서 가장 낮은 값은 "
-            f"**{first_case['coolant']}**입니다. "
-            "이는 최종 coolant 추천이 아니라 현재 계산항목과 weighting에 따른 "
-            "비교 결과입니다."
+    if (
+        pipe_sensitivity is not None
+        and not pipe_sensitivity.empty
+    ):
+        scenario_table = (
+            pipe_sensitivity.copy()
         )
 
-    st.warning(
-        "Phase 5의 ranking은 OEM approval, 실제 CAPEX, 동결보호, "
-        "water chemistry, 장기 부식/재질 compatibility 등을 모두 포함한 "
-        "최종 최적화 결과가 아닙니다."
-    )
+        scenario_table = (
+            scenario_table.sort_values(
+                [
+                    "coolant",
+                    "Diameter Scale",
+                ]
+            )
+        )
 
-    # ===================================
-    # 5C · ENGINEER DECISION
-    # ===================================
-    st.divider()
-
-    st.markdown(
-        "### 5C · Engineer Decision"
-    )
-
-    available_cases = (
-        phase5_results[
-            "coolant"
+        scenario_display_cols = [
+            "coolant",
+            "Pipe Scenario",
+            "Common ID mm",
+            "Row Header ID mm",
+            "Rack Branch ID mm",
+            "Max_Branch_Velocity_m_s",
+            "Worst_Total_DP_kPa",
+            "Total_Pump_kW",
+            "ΔP vs Current %",
+            "Pump vs Current %",
         ]
-        .dropna()
-        .unique()
-        .tolist()
-    )
 
-    preferred_case = st.selectbox(
-        "Preferred hydraulic case for next design iteration",
-        available_cases,
-        key="phase5_preferred_case",
-    )
-
-    st.write(
-        f"**Approved TCS topology:** "
-        f"{st.session_state.get('topology_choice', 'Not selected')}"
-    )
-
-    st.write(
-        f"**Selected hydraulic case:** "
-        f"{preferred_case}"
-    )
-
-    final_note = st.text_area(
-        "Final engineer review note",
-        key="phase5_final_note",
-        placeholder=(
-            "예: Candidate B를 후속 상세검토 대상으로 선정. "
-            "OEM pressure-flow curve, supplier compatibility 및 "
-            "actual routing을 반영해 다음 iteration 수행."
-        ),
-    )
-
-    final_check = st.checkbox(
-        "본 결과가 기본설계 단계의 비교·검토 결과이며 최종 시공/구매 승인안이 아님을 확인했습니다.",
-        key="phase5_final_check",
-    )
-
-    if st.button(
-        "Save Engineer Decision",
-        type="primary",
-        disabled=not final_check,
-        use_container_width=True,
-    ):
-        st.session_state.final_decision = {
-            "topology": st.session_state.get(
-                "topology_choice"
+        st.dataframe(
+            scenario_table[
+                scenario_display_cols
+            ].style.format(
+                {
+                    "Common ID mm": "{:.1f}",
+                    "Row Header ID mm": "{:.1f}",
+                    "Rack Branch ID mm": "{:.1f}",
+                    "Max_Branch_Velocity_m_s": "{:.2f}",
+                    "Worst_Total_DP_kPa": "{:.1f}",
+                    "Total_Pump_kW": "{:.2f}",
+                    "ΔP vs Current %": "{:+.1f}%",
+                    "Pump vs Current %": "{:+.1f}%",
+                }
             ),
-            "hydraulic_case": preferred_case,
-            "engineer_note": final_note,
-        }
+            use_container_width=True,
+            hide_index=True,
+        )
 
-        st.success(
-            "Engineer decision saved."
+        # -----------------------------------
+        # Visual trade-off
+        # -----------------------------------
+        fig_final_tradeoff = px.scatter(
+            scenario_table,
+            x="Worst_Total_DP_kPa",
+            y="Total_Pump_kW",
+            color="coolant",
+            symbol="Pipe Scenario",
+            hover_data=[
+                "Common ID mm",
+                "Row Header ID mm",
+                "Rack Branch ID mm",
+                "Max_Branch_Velocity_m_s",
+            ],
+            title=(
+                "Coolant × Pipe Scenario · "
+                "Pressure Drop vs Pump Power"
+            ),
+        )
+
+        st.plotly_chart(
+            fig_final_tradeoff,
+            use_container_width=True,
+        )
+
+        st.info(
+            "그래프의 좌측·하단 방향은 현재 계산조건에서 hydraulic burden이 "
+            "상대적으로 낮음을 의미합니다. 단, 관경 증가에 따른 CAPEX, "
+            "설치공간 및 자재량은 현재 PoC에 포함되지 않습니다."
+        )
+
+        # ===================================
+        # 5C · ENGINEER DECISION
+        # ===================================
+        st.divider()
+
+        st.markdown(
+            "### 5C · Engineer Preferred Scenario"
+        )
+
+        scenario_table[
+            "Scenario Label"
+        ] = scenario_table.apply(
+            lambda row: (
+                f"{row['coolant']} · "
+                f"{row['Pipe Scenario']} · "
+                f"Branch {row['Rack Branch ID mm']:.1f} mm"
+            ),
+            axis=1,
+        )
+
+        scenario_labels = (
+            scenario_table[
+                "Scenario Label"
+            ]
+            .tolist()
+        )
+
+        preferred_scenario_label = st.selectbox(
+            "Preferred scenario for next design iteration",
+            scenario_labels,
+            key="phase5_preferred_scenario",
+        )
+
+        selected_scenario = (
+            scenario_table[
+                scenario_table[
+                    "Scenario Label"
+                ]
+                == preferred_scenario_label
+            ]
+            .iloc[0]
+        )
+
+        s1, s2, s3, s4 = st.columns(4)
+
+        s1.metric(
+            "Coolant",
+            selected_scenario[
+                "coolant"
+            ],
+        )
+
+        s2.metric(
+            "Branch ID",
+            (
+                f"{selected_scenario['Rack Branch ID mm']:.1f} mm"
+            ),
+        )
+
+        s3.metric(
+            "Worst ΔP",
+            (
+                f"{selected_scenario['Worst_Total_DP_kPa']:.1f} kPa"
+            ),
+        )
+
+        s4.metric(
+            "Pump Power",
+            (
+                f"{selected_scenario['Total_Pump_kW']:.2f} kW"
+            ),
+        )
+
+        selected_scale = float(
+            selected_scenario[
+                "Diameter Scale"
+            ]
+        )
+
+        if selected_scale > 1.0:
+            st.info(
+                "선택안은 현재 배관 기준보다 큰 관경의 sensitivity case입니다. "
+                "Hydraulic burden은 감소할 수 있으나 실제 표준배관 규격, "
+                "공간 및 경제성 검토가 추가로 필요합니다."
+            )
+
+        elif selected_scale < 1.0:
+            st.warning(
+                "선택안은 현재 배관 기준보다 작은 관경의 sensitivity case입니다. "
+                "유속 및 압력손실 증가에 대한 프로젝트별 허용성 검토가 필요합니다."
+            )
+
+        else:
+            st.info(
+                "선택안은 현재 Phase 4 Sidebar에서 정의한 "
+                "배관 geometry를 사용합니다."
+            )
+
+        st.write(
+            f"**Approved TCS topology:** "
+            f"{st.session_state.get('topology_choice', 'Not selected')}"
+        )
+
+        final_note = st.text_area(
+            "Final engineer review note",
+            key="phase5_final_note",
+            placeholder=(
+                "예: Project Candidate B + 120% pipe scenario를 "
+                "후속 상세검토 대상으로 선정. 실제 routing, fitting loss, "
+                "OEM pressure-flow curve 및 CAPEX 반영 필요."
+            ),
+        )
+
+        final_check = st.checkbox(
+            "본 선택안은 기본설계 단계의 후속 검토 후보이며 "
+            "최종 시공·구매 승인안이 아님을 확인했습니다.",
+            key="phase5_final_check",
+        )
+
+        if st.button(
+            "✓ Save Engineer Preferred Scenario",
+            type="primary",
+            disabled=not final_check,
+            use_container_width=True,
+        ):
+            st.session_state[
+                "final_decision"
+            ] = {
+                "topology": (
+                    st.session_state.get(
+                        "topology_choice"
+                    )
+                ),
+                "coolant": (
+                    selected_scenario[
+                        "coolant"
+                    ]
+                ),
+                "pipe_scenario": (
+                    selected_scenario[
+                        "Pipe Scenario"
+                    ]
+                ),
+                "diameter_scale": float(
+                    selected_scenario[
+                        "Diameter Scale"
+                    ]
+                ),
+                "common_id_mm": float(
+                    selected_scenario[
+                        "Common ID mm"
+                    ]
+                ),
+                "row_header_id_mm": float(
+                    selected_scenario[
+                        "Row Header ID mm"
+                    ]
+                ),
+                "rack_branch_id_mm": float(
+                    selected_scenario[
+                        "Rack Branch ID mm"
+                    ]
+                ),
+                "max_branch_velocity_m_s": float(
+                    selected_scenario[
+                        "Max_Branch_Velocity_m_s"
+                    ]
+                ),
+                "worst_dp_kpa": float(
+                    selected_scenario[
+                        "Worst_Total_DP_kPa"
+                    ]
+                ),
+                "total_pump_kw": float(
+                    selected_scenario[
+                        "Total_Pump_kW"
+                    ]
+                ),
+                "engineer_note": final_note,
+            }
+
+            st.success(
+                "Preferred Coolant × Pipe scenario saved "
+                "for final cross-check."
+            )
+
+    # ===================================
+    # FALLBACK · No pipe sensitivity
+    # ===================================
+    else:
+        st.warning(
+            "Approved Pipe Diameter Sensitivity result가 없습니다. "
+            "Phase 4에서 sensitivity calculation을 승인한 뒤 "
+            "Coolant × Pipe 비교를 진행해주세요."
+        )
+
+        st.markdown(
+            "#### Current Hydraulic Cases"
+        )
+
+        ranking_cols = [
+            "rank",
+            "coolant",
+            "total_pump_kw",
+            "worst_dp_kpa",
+            "cdu_loading_pct",
+            "balanced_score",
+        ]
+
+        ranking_cols = [
+            col
+            for col in ranking_cols
+            if col in ranking.columns
+        ]
+
+        st.dataframe(
+            ranking[
+                ranking_cols
+            ],
+            use_container_width=True,
+            hide_index=True,
         )
 
     # ===================================
