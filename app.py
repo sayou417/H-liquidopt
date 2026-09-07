@@ -2665,8 +2665,8 @@ elif phase == 3:
                 "source": candidate_source.strip(),
             }
 
-        st.session_state.phase3_analysis_cases = (
-            selected_analysis_cases
+        st.session_state.phase3_approved_analysis_cases = (
+            list(selected_analysis_cases)
         )
 
         st.session_state.phase3_supply_t = (
@@ -2746,7 +2746,7 @@ elif phase == 4:
         )
         st.stop()
 
-    if "phase3_analysis_cases" not in st.session_state:
+    if "phase3_approved_analysis_cases" not in st.session_state:
         st.error(
             "Phase 3에서 승인된 coolant analysis case가 없습니다."
         )
@@ -2757,7 +2757,7 @@ elif phase == 4:
     )
 
     selected_cases = (
-        st.session_state.phase3_analysis_cases
+        st.session_state.phase3_approved_analysis_cases
     )
 
     phase4_supply_t = (
@@ -3623,7 +3623,7 @@ elif phase == 5:
 
     phase3_cases_text = ", ".join(
         st.session_state.get(
-            "phase3_analysis_cases",
+            "phase3_approved_analysis_cases",
             [],
         )
     )
