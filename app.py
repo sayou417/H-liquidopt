@@ -5649,25 +5649,150 @@ elif phase == 5:
                     "",
                 )
             )
+checks = ai_review.get(
+    "checks",
+    [],
+)
 
-            checks = ai_review.get(
-                "checks",
-                [],
+if checks:
+    st.markdown(
+        "#### Cross-Check Results"
+    )
+
+    # -----------------------------------
+    # Resolve AI source-field references
+    # against the original verified
+    # extraction traceability.
+    # -----------------------------------
+    verified_sources = (
+        verified_spec.get(
+            "sources",
+            [],
+        )
+    )
+
+    source_lookup = {}
+
+    for source in verified_sources:
+        source_field = source.get(
+            "field"
+        )
+
+        if source_field:
+            source_lookup.setdefault(
+                source_field,
+                []
+            ).append(
+                source
             )
 
-            if checks:
-                st.markdown(
-                    "#### Cross-Check Results"
+    enriched_checks = []
+
+    for check in checks:
+
+        source_refs = []
+        evidence_refs = []
+
+        for source_field in check.get(
+            "source_fields",
+            [],
+        ):
+
+            matching_sources = (
+                source_lookup.get(
+                    source_field,
+                    [],
+                )
+            )
+
+            for source in matching_sources:
+
+                page = source.get(
+                    "page"
                 )
 
-                st.dataframe(
-                    pd.DataFrame(
-                        checks
-                    ),
-                    use_container_width=True,
-                    hide_index=True,
+                if page is not None:
+                    source_refs.append(
+                        f"{source_field} · p.{page}"
+                    )
+                else:
+                    source_refs.append(
+                        f"{source_field} · page unavailable"
+                    )
+
+                evidence = source.get(
+                    "evidence"
                 )
 
+                if evidence:
+                    evidence_refs.append(
+                        evidence
+                    )
+
+        # Remove duplicates while
+        # preserving original order.
+        source_refs = list(
+            dict.fromkeys(
+                source_refs
+            )
+        )
+
+        evidence_refs = list(
+            dict.fromkeys(
+                evidence_refs
+            )
+        )
+
+        enriched_checks.append(
+            {
+                "Category": check.get(
+                    "category",
+                    "",
+                ),
+
+                "Status": check.get(
+                    "status",
+                    "",
+                ),
+
+                "Finding": check.get(
+                    "message",
+                    "",
+                ),
+
+                "Source": (
+                    "; ".join(
+                        source_refs
+                    )
+                    if source_refs
+                    else "No direct verified source"
+                ),
+
+                "Evidence": (
+                    " | ".join(
+                        evidence_refs
+                    )
+                    if evidence_refs
+                    else "-"
+                ),
+            }
+        )
+
+    st.dataframe(
+        pd.DataFrame(
+            enriched_checks
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.caption(
+        "Source page and evidence are resolved from the "
+        "original engineer-verified extraction record. "
+        "The Final Cross-Check AI does not generate or "
+        "overwrite source-page information."
+    )
+            
             missing = ai_review.get(
                 "missing_verifications",
                 [],
