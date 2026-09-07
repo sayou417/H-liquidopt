@@ -5823,11 +5823,11 @@ if next_actions:
             f"- {item}"
         )
 
-            st.warning(
-                "AI Cross-Check는 설계 승인 또는 안전 인증이 아닙니다. "
-                "최종 적합성 판단은 프로젝트 엔지니어, OEM 및 "
-                "coolant/equipment supplier 검토가 필요합니다."
-            )
+st.warning(
+    "AI Cross-Check는 설계 승인 또는 안전 인증이 아닙니다. "
+    "최종 적합성 판단은 프로젝트 엔지니어, OEM 및 "
+    "coolant/equipment supplier 검토가 필요합니다."
+)
     # ===================================
     # 5E · DECISION HISTORY
     # ===================================
