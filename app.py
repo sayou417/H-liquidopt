@@ -1163,14 +1163,217 @@ elif phase == 2:
         "유지보수 조건 및 배관 topology 검토에 따라 증가할 수 있습니다."
     )
 
-    options = pd.DataFrame([
-        ["A", "One CDU per Pod + shared standby", "Clear pod boundary / simple isolation", "More CDU units; verify each pod fits one duty CDU"],
-        ["B", "Central CDU plant + branch headers", "Central maintenance / capacity pooling", "Longer network and balancing complexity"],
-        ["C", "In-row CDU grouping", "Short secondary loop / close to load", "White-space footprint and service access"],
-    ], columns=["Option","Topology","Strength","Engineer review point"])
-    st.markdown("#### Candidate topologies")
-    st.dataframe(options, use_container_width=True, hide_index=True)
-    choice = st.selectbox("Engineer-selected topology", options["Topology"].tolist(), index=0)
+    # -----------------------------------
+    # 2B. CANDIDATE COMPARISON
+    # -----------------------------------
+    st.divider()
+
+    st.markdown("### 2B · Candidate Comparison")
+
+    c1, c2 = st.columns([1, 4])
+
+    with c1:
+        render_tag("CALCULATED", "calculated")
+
+    with c2:
+        st.write(
+            "동일한 Liquid Load에 대해 Pod-dedicated, Central, "
+            "In-row 구성의 기초 용량 적합성과 설비 구성을 비교합니다."
+        )
+
+    # Phase 1 rack data → calculated liquid load
+    phase2_calc = heat_loads(phase1_racks)
+
+    # -----------------------------------
+    # Candidate A · Pod-dedicated
+    # -----------------------------------
+    pod_count = len(pods)
+
+    pod_capacity_ok = (
+        pods["liquid_load_kw"] <= cdu_capacity * 1000
+    ).all()
+
+    pod_max_loading = (
+        pods["liquid_load_kw"].max()
+        / (cdu_capacity * 1000)
+        * 100
+    )
+
+    pod_duty_units = pod_count
+
+    # -----------------------------------
+    # Candidate B · Central CDU plant
+    # -----------------------------------
+    central_duty_units = recommended_duty_cdus(
+        total_liquid,
+        cdu_capacity,
+    )
+
+    central_loading = (
+        total_liquid
+        / (central_duty_units * cdu_capacity * 1000)
+        * 100
+    )
+
+    # -----------------------------------
+    # Candidate C · In-row grouping
+    # -----------------------------------
+    if "row" in phase2_calc.columns:
+        row_summary = (
+            phase2_calc
+            .groupby("row", as_index=False)["liquid_load_kw"]
+            .sum()
+        )
+
+        row_count = len(row_summary)
+
+        row_capacity_ok = (
+            row_summary["liquid_load_kw"]
+            <= cdu_capacity * 1000
+        ).all()
+
+        row_max_loading = (
+            row_summary["liquid_load_kw"].max()
+            / (cdu_capacity * 1000)
+            * 100
+        )
+
+    else:
+        row_summary = pd.DataFrame()
+        row_count = 0
+        row_capacity_ok = False
+        row_max_loading = 0.0
+
+    # -----------------------------------
+    # Candidate cards
+    # -----------------------------------
+    card_a, card_b, card_c = st.columns(3)
+
+    with card_a:
+        st.markdown("#### A · Pod-dedicated")
+
+        if pod_capacity_ok:
+            st.success("Capacity screen · PASS")
+        else:
+            st.error("Capacity screen · REVIEW")
+
+        st.metric(
+            "Duty CDU Units",
+            f"{pod_duty_units}",
+        )
+
+        st.metric(
+            "Max CDU Loading",
+            f"{pod_max_loading:.1f}%",
+        )
+
+        st.markdown(
+            """
+            **Concept**
+
+            Pod별 독립 CDU를 배치하여
+            Cooling Zone 경계를 명확하게 구성합니다.
+
+            **Strength**
+            - Pod 단위 격리 용이
+            - 장애 영향 범위 제한
+            - 단계별 증설에 유리
+
+            **Review**
+            - 각 Pod가 단일 CDU 정격 내에 들어오는지 확인
+            - CDU 수량 증가 가능
+            """
+        )
+
+    with card_b:
+        st.markdown("#### B · Central CDU Plant")
+
+        st.success("Aggregate capacity · PASS")
+
+        st.metric(
+            "Duty CDU Units",
+            f"{central_duty_units}",
+        )
+
+        st.metric(
+            "Average Duty Loading",
+            f"{central_loading:.1f}%",
+        )
+
+        st.markdown(
+            """
+            **Concept**
+
+            중앙 CDU Plant에서 여러 Pod의
+            Liquid Load를 통합 처리합니다.
+
+            **Strength**
+            - 용량 Pooling 가능
+            - 중앙 집중 유지보수
+            - CDU 활용률 조정 용이
+
+            **Review**
+            - 배관 길이 증가 가능
+            - Hydraulic balancing 검토 필요
+            - 장애 영향 범위가 커질 수 있음
+            """
+        )
+
+    with card_c:
+        st.markdown("#### C · In-row Grouping")
+
+        if row_capacity_ok:
+            st.success("Capacity screen · PASS")
+        else:
+            st.warning("Capacity screen · REVIEW")
+
+        st.metric(
+            "Candidate Row Groups",
+            f"{row_count}",
+        )
+
+        st.metric(
+            "Max Row Loading",
+            f"{row_max_loading:.1f}%",
+        )
+
+        st.markdown(
+            """
+            **Concept**
+
+            Row 또는 근접 Rack Group 단위로
+            CDU를 부하 가까이에 배치합니다.
+
+            **Strength**
+            - Secondary loop 단축 가능
+            - 부하 가까이에서 제어 가능
+            - 구역별 확장에 유리
+
+            **Review**
+            - White-space 점유
+            - 유지보수 동선
+            - 실제 Row grouping 기준 검토 필요
+            """
+        )
+
+    st.caption(
+        "※ 본 비교는 기본설계 단계의 후보 스크리닝입니다. "
+        "배관 Routing, 실제 CDU 성능곡선, 제어방식, 유지보수 공간 및 "
+        "Redundancy 조건을 반영한 최종 설계 결과가 아닙니다."
+    )
+
+    topology_options = [
+        "A · Pod-dedicated CDU",
+        "B · Central CDU Plant",
+        "C · In-row CDU Grouping",
+    ]
+
+    choice = st.radio(
+        "Engineer-selected candidate",
+        topology_options,
+        horizontal=True,
+        key="phase2_topology_choice",
+    )
     st.text_area("Engineer note", key="phase2_note", placeholder="Example: prioritize pod isolation and maintenance access.")
     if (pods["CDU loading %"] > 100).any() and choice.startswith("One CDU per Pod"):
         st.error("At least one pod exceeds one candidate CDU's nominal capacity. Increase capacity, split the pod, or choose another topology.")
