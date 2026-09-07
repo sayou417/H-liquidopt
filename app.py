@@ -20,6 +20,7 @@ from engine import (
 from ai_adapter import (
     test_openai_connection,
     extract_specification,
+    cross_check_design,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -5403,7 +5404,267 @@ elif phase == 5:
                 "Preferred Coolant × Pipe scenario saved "
                 "for final cross-check."
             )
+    # ===================================
+    # 5D · AI FINAL CROSS-CHECK
+    # ===================================
+    st.divider()
 
+    st.markdown(
+        "### 5D · AI Final Cross-Check"
+    )
+
+    st.caption(
+        "Engineer가 선택한 Coolant × Pipe scenario를 "
+        "앞단에서 engineer-verified 된 OEM specification과 "
+        "교차검토합니다."
+    )
+
+    verified_spec = st.session_state.get(
+        "ai_verified_spec"
+    )
+
+    final_decision = st.session_state.get(
+        "final_decision"
+    )
+
+    if verified_spec is None:
+        st.info(
+            "AI Specification Assistant에서 engineer-verified "
+            "source specification이 저장되지 않았습니다."
+        )
+
+    elif final_decision is None:
+        st.info(
+            "먼저 위에서 Preferred Coolant × Pipe scenario를 "
+            "저장해주세요."
+        )
+
+    else:
+        selected_coolant = (
+            final_decision.get(
+                "coolant"
+            )
+        )
+
+        selected_hydraulic = (
+            phase5_results[
+                phase5_results[
+                    "coolant"
+                ] == selected_coolant
+            ]
+            .copy()
+        )
+
+        if (
+            not selected_hydraulic.empty
+            and "rack_flow_lpm"
+            in selected_hydraulic.columns
+        ):
+            calculated_rack_flow = float(
+                selected_hydraulic[
+                    "rack_flow_lpm"
+                ].mean()
+            )
+        else:
+            calculated_rack_flow = None
+
+        design_context = {
+            "topology": (
+                st.session_state.get(
+                    "topology_choice"
+                )
+            ),
+
+            "cdu_capacity_mw": (
+                phase5_cdu_capacity
+            ),
+
+            "redundancy": (
+                phase5_redundancy
+            ),
+
+            "design_supply_temp_c": (
+                st.session_state.get(
+                    "phase3_supply_t",
+                    st.session_state.get(
+                        "supply_t"
+                    ),
+                )
+            ),
+
+            "design_return_temp_c": (
+                st.session_state.get(
+                    "phase3_return_t",
+                    st.session_state.get(
+                        "return_t"
+                    ),
+                )
+            ),
+
+            "design_delta_t_k": (
+                phase5_delta_t
+            ),
+
+            "total_liquid_load_kw": float(
+                heat_loads(
+                    phase5_racks
+                )[
+                    "liquid_load_kw"
+                ].sum()
+            ),
+
+            "calculated_average_rack_flow_lpm": (
+                calculated_rack_flow
+            ),
+
+            "rack_dp_assumption_kpa": (
+                st.session_state.get(
+                    "rack_dp"
+                )
+            ),
+
+            "verified_oem_reference": (
+                st.session_state.get(
+                    "phase4_oem_reference"
+                )
+            ),
+
+            "known_model_limitations": [
+                (
+                    "Rack internal pressure drop may still "
+                    "use a synthetic placeholder unless an "
+                    "OEM pressure-flow curve is implemented."
+                ),
+                (
+                    "Pipe diameter sensitivity does not "
+                    "include project CAPEX."
+                ),
+                (
+                    "Detailed fitting/minor loss and actual "
+                    "routing are not fully modeled."
+                ),
+            ],
+        }
+
+        if st.button(
+            "🤖 Run AI Final Cross-Check",
+            type="primary",
+            key="run_phase5_ai_crosscheck",
+            use_container_width=True,
+        ):
+            try:
+                api_key = st.secrets.get(
+                    "OPENAI_API_KEY"
+                )
+
+                with st.spinner(
+                    "AI is cross-checking the selected design "
+                    "against verified source constraints..."
+                ):
+                    ai_review = cross_check_design(
+                        verified_spec=verified_spec,
+                        final_decision=final_decision,
+                        design_context=design_context,
+                        api_key=api_key,
+                    )
+
+                st.session_state[
+                    "phase5_ai_crosscheck"
+                ] = ai_review
+
+            except Exception as e:
+                st.error(
+                    f"AI final cross-check failed: {e}"
+                )
+
+        if (
+            "phase5_ai_crosscheck"
+            in st.session_state
+        ):
+            ai_review = st.session_state[
+                "phase5_ai_crosscheck"
+            ]
+
+            status = ai_review.get(
+                "overall_status"
+            )
+
+            if status == "NO_OBVIOUS_CONFLICT":
+                st.success(
+                    "AI Cross-Check · "
+                    "NO OBVIOUS CONFLICT DETECTED"
+                )
+
+            elif status == "REVIEW_REQUIRED":
+                st.warning(
+                    "AI Cross-Check · REVIEW REQUIRED"
+                )
+
+            else:
+                st.warning(
+                    "AI Cross-Check · INSUFFICIENT DATA"
+                )
+
+            st.write(
+                ai_review.get(
+                    "summary",
+                    "",
+                )
+            )
+
+            checks = ai_review.get(
+                "checks",
+                [],
+            )
+
+            if checks:
+                st.markdown(
+                    "#### Cross-Check Results"
+                )
+
+                st.dataframe(
+                    pd.DataFrame(
+                        checks
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            missing = ai_review.get(
+                "missing_verifications",
+                [],
+            )
+
+            if missing:
+                st.markdown(
+                    "#### Missing / Remaining Verification"
+                )
+
+                for item in missing:
+                    st.write(
+                        f"- {item}"
+                    )
+
+            next_actions = ai_review.get(
+                "next_actions",
+                [],
+            )
+
+            if next_actions:
+                st.markdown(
+                    "#### Recommended Next Engineering Checks"
+                )
+
+                for item in next_actions:
+                    st.write(
+                        f"- {item}"
+                    )
+
+            st.warning(
+                "AI Cross-Check는 설계 승인 또는 안전 인증이 아닙니다. "
+                "최종 적합성 판단은 프로젝트 엔지니어, OEM 및 "
+                "coolant/equipment supplier 검토가 필요합니다."
+            )
     # ===================================
     # FALLBACK · No pipe sensitivity
     # ===================================
@@ -5442,12 +5703,12 @@ elif phase == 5:
         )
 
     # ===================================
-    # 5D · DECISION HISTORY
+    # 5E · DECISION HISTORY
     # ===================================
     st.divider()
 
     st.markdown(
-        "### 5D · Decision History"
+        "### 5E · Decision History"
     )
 
     phase3_cases_text = ", ".join(
