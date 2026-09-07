@@ -473,11 +473,34 @@ FINAL_REVIEW_SCHEMA = {
                     "message": {
                         "type": "string"
                     },
+                    "source_fields": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": [
+                                "document_type",
+                                "manufacturer",
+                                "model",
+                                "rated_power_kw",
+                                "hcr",
+                                "coolant_name",
+                                "density_kg_m3",
+                                "cp_kj_kgk",
+                                "viscosity_mpas",
+                                "property_temp_c",
+                                "supply_temp_min_c",
+                                "supply_temp_max_c",
+                                "recommended_flow_lpm",
+                                "pressure_drop_kpa",
+                            ],
+                        },
+                    },
                 },
                 "required": [
                     "category",
                     "status",
                     "message",
+                    "source_fields",
                 ],
                 "additionalProperties": False,
             },
@@ -601,6 +624,26 @@ IMPORTANT RULES
     when relevant.
 
 13. Keep the review concise and engineering-focused.
+
+14. For every check, source_fields must list the canonical
+    specification fields that directly support the finding.
+
+15. Use only field names represented in the
+    engineer-verified source traceability dataset.
+
+16. If no source field directly supports a finding,
+    return an empty source_fields array.
+
+17. Never invent page numbers, quotations, source fields,
+    or evidence.
+
+18. Do not use AI review notes alone as evidence for a
+    quantitative OEM requirement unless a corresponding
+    verified source field exists.
+
+19. If a quantitative requirement cannot be traced to a
+    verified source field, classify it as REVIEW_REQUIRED
+    or INSUFFICIENT_DATA rather than presenting it as fact.
 
 Return only the required structured review.
 """
