@@ -137,7 +137,30 @@ defaults = {
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
+# =========================================
+# Protect persistent project state
+# from Streamlit widget cleanup
+# =========================================
+PERSISTENT_PROJECT_KEYS = [
+    "supply_t",
+    "return_t",
+    "cdu_capacity",
+    "redundancy",
+    "common_d",
+    "row_d",
+    "branch_d",
+    "common_l",
+    "row_l",
+    "branch_l",
+    "rack_dp",
+]
 
+for key in PERSISTENT_PROJECT_KEYS:
+    if key in st.session_state:
+        # Re-assigning the key interrupts Streamlit's
+        # widget cleanup behavior and keeps it as
+        # persistent project state.
+        st.session_state[key] = st.session_state[key]
 def render_tag(text, kind="info"):
     styles = {
         "verified": ("#EAF7EE", "#137333", "#B7DFC2"),
