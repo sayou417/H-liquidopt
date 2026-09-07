@@ -28,38 +28,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# =========================================
-# TEMPORARY OPENAI CONNECTION TEST
-# =========================================
-with st.expander("🔌 AI Connection Test", expanded=False):
-    st.caption(
-        "Temporary diagnostic tool for checking the OpenAI API connection."
-    )
-
-    if st.button(
-        "Test OpenAI Connection",
-        key="test_openai_connection_button",
-    ):
-        try:
-            api_key = st.secrets.get("OPENAI_API_KEY")
-
-            if not api_key:
-                st.error(
-                    "OPENAI_API_KEY was not found in Streamlit Secrets."
-                )
-            else:
-                with st.spinner("Connecting to OpenAI..."):
-                    result = test_openai_connection(
-                        api_key=api_key
-                    )
-
-                st.success(result)
-
-        except Exception as e:
-            st.error(
-                f"OpenAI connection failed: {e}"
-            )
-
 st.markdown("""
 <style>
 .block-container {padding-top: 1.25rem; max-width: 1500px;}
@@ -199,6 +167,37 @@ def render_tag(text, kind="info"):
 
 st.title("H-LiquidOpt")
 st.caption("Human-in-the-Loop · D2C liquid-cooling preliminary design support prototype")
+# =========================================
+# TEMPORARY OPENAI CONNECTION TEST
+# =========================================
+with st.expander("🔌 AI Connection Test", expanded=False):
+    st.caption(
+        "Temporary diagnostic tool for checking the OpenAI API connection."
+    )
+
+    if st.button(
+        "Test OpenAI Connection",
+        key="test_openai_connection_button",
+    ):
+        try:
+            api_key = st.secrets.get("OPENAI_API_KEY")
+
+            if not api_key:
+                st.error(
+                    "OPENAI_API_KEY was not found in Streamlit Secrets."
+                )
+            else:
+                with st.spinner("Connecting to OpenAI..."):
+                    result = test_openai_connection(
+                        api_key=api_key
+                    )
+
+                st.success(result)
+
+        except Exception as e:
+            st.error(
+                f"OpenAI connection failed: {e}"
+            )
 phase = st.radio(
     "Design phase",
     [1, 2, 3, 4, 5],
