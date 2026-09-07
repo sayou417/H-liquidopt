@@ -746,6 +746,123 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                 "The original AI extraction remains separate "
                 "from the engineer-approved data."
             )
+            # =========================================
+            # TRANSFER VERIFIED VALUES
+            # =========================================
+            st.markdown(
+                "#### Transfer Verified Values"
+            )
+    
+            st.caption(
+                "Only engineer-verified values can be transferred. "
+                "Transferred values remain editable in each design phase."
+            )
+    
+            t1, t2, t3 = st.columns(3)
+    
+            # -----------------------------------------
+            # Phase 1 transfer staging
+            # -----------------------------------------
+            with t1:
+                phase1_transfer_ready = (
+                    verified.get("rated_power_kw") is not None
+                    and verified.get("hcr") is not None
+                )
+    
+                if st.button(
+                    "→ Send to Phase 1",
+                    disabled=not phase1_transfer_ready,
+                    key="transfer_ai_to_phase1",
+                    use_container_width=True,
+                ):
+                    st.session_state["ai_phase1_import_pending"] = {
+                        "manufacturer": verified.get("manufacturer"),
+                        "model": verified.get("model"),
+                        "rated_power_kw": verified.get("rated_power_kw"),
+                        "hcr": verified.get("hcr"),
+                    }
+    
+                    st.success(
+                        "Verified rack/equipment values staged for Phase 1."
+                    )
+    
+            # -----------------------------------------
+            # Phase 3 transfer staging
+            # -----------------------------------------
+            with t2:
+                phase3_transfer_ready = (
+                    verified.get("coolant_name") is not None
+                    and verified.get("density_kg_m3") is not None
+                    and verified.get("cp_kj_kgk") is not None
+                    and verified.get("viscosity_mpas") is not None
+                )
+    
+                if st.button(
+                    "→ Send to Phase 3",
+                    disabled=not phase3_transfer_ready,
+                    key="transfer_ai_to_phase3",
+                    use_container_width=True,
+                ):
+                    st.session_state["ai_phase3_import_pending"] = {
+                        "name": verified.get("coolant_name"),
+                        "rho_kg_m3": verified.get("density_kg_m3"),
+                        "cp_kj_kgk": verified.get("cp_kj_kgk"),
+                        "mu_pa_s": (
+                            verified.get("viscosity_mpas") / 1000
+                            if verified.get("viscosity_mpas") is not None
+                            else None
+                        ),
+                        "viscosity_mpas": verified.get("viscosity_mpas"),
+                        "property_temp_c": verified.get("property_temp_c"),
+                        "source": (
+                            f"AI-extracted and engineer-verified · "
+                            f"{verified.get('manufacturer') or ''} "
+                            f"{verified.get('model') or ''}"
+                        ).strip(),
+                    }
+    
+                    st.success(
+                        "Verified coolant properties staged for Phase 3."
+                    )
+    
+            # -----------------------------------------
+            # Phase 4 reference transfer staging
+            # -----------------------------------------
+            with t3:
+                phase4_transfer_ready = any(
+                    verified.get(field) is not None
+                    for field in [
+                        "supply_temp_min_c",
+                        "supply_temp_max_c",
+                        "recommended_flow_lpm",
+                        "pressure_drop_kpa",
+                    ]
+                )
+    
+                if st.button(
+                    "→ Send to Phase 4",
+                    disabled=not phase4_transfer_ready,
+                    key="transfer_ai_to_phase4",
+                    use_container_width=True,
+                ):
+                    st.session_state["ai_phase4_reference_pending"] = {
+                        "supply_temp_min_c": verified.get(
+                            "supply_temp_min_c"
+                        ),
+                        "supply_temp_max_c": verified.get(
+                            "supply_temp_max_c"
+                        ),
+                        "recommended_flow_lpm": verified.get(
+                            "recommended_flow_lpm"
+                        ),
+                        "pressure_drop_kpa": verified.get(
+                            "pressure_drop_kpa"
+                        ),
+                    }
+    
+                    st.success(
+                        "Verified OEM operating data staged for Phase 4 review."
+                    )
     st.divider()
 
     if st.button(
