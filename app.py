@@ -1192,6 +1192,60 @@ if phase == 1:
         # -----------------------------------
         # Detailed Equipment Input
         # -----------------------------------
+        
+        # ===================================
+        # IMPORT ENGINEER-VERIFIED AI DATA
+        # ===================================
+        if "ai_phase1_import_pending" in st.session_state:
+            ai_import = st.session_state.pop(
+                "ai_phase1_import_pending"
+            )
+
+            manufacturer = (
+                ai_import.get("manufacturer")
+                or ""
+            )
+
+            model = (
+                ai_import.get("model")
+                or "AI Imported Equipment"
+            )
+
+            equipment_label = (
+                f"{manufacturer} {model}"
+            ).strip()
+
+            ai_equipment_row = {
+                "rack_id": "R01",
+                "equipment": equipment_label,
+                "quantity": 1,
+                "rated_power_kw": float(
+                    ai_import.get("rated_power_kw")
+                    or 0.0
+                ),
+                "load_factor": 1.00,
+                "hcr": float(
+                    ai_import.get("hcr")
+                    or 0.0
+                ),
+                "pod": "A",
+                "row": 1,
+                "col": 1,
+            }
+
+            st.session_state.equipment_input = pd.DataFrame(
+                [ai_equipment_row]
+            )
+
+            st.session_state["phase1_ai_imported"] = True
+        if st.session_state.get(
+            "phase1_ai_imported",
+            False,
+        ):
+            st.success(
+                "✓ Engineer-verified AI equipment specification loaded. "
+                "Review the equipment configuration before Phase 1 approval."
+            )
         if "equipment_input" not in st.session_state:
             st.session_state.equipment_input = pd.DataFrame(
                 [
@@ -2663,10 +2717,55 @@ elif phase == 3:
 
     render_tag("PROJECT INPUT", "input")
 
+    # ===================================
+    # IMPORT ENGINEER-VERIFIED AI DATA
+    # ===================================
+    if "ai_phase3_import_pending" in st.session_state:
+        ai_import = st.session_state.pop(
+            "ai_phase3_import_pending"
+        )
+
+        st.session_state["phase3_supplier_name"] = (
+            ai_import.get("name") or ""
+        )
+
+        st.session_state["phase3_supplier_rho"] = float(
+            ai_import.get("rho_kg_m3") or 0.0
+        )
+
+        st.session_state["phase3_supplier_cp"] = float(
+            ai_import.get("cp_kj_kgk") or 0.0
+        )
+
+        st.session_state["phase3_supplier_mu_mpas"] = float(
+            ai_import.get("viscosity_mpas") or 0.0
+        )
+
+        if ai_import.get("property_temp_c") is not None:
+            st.session_state[
+                "phase3_supplier_property_temp"
+            ] = float(
+                ai_import["property_temp_c"]
+            )
+
+        st.session_state["phase3_supplier_source"] = (
+            ai_import.get("source") or ""
+        )
+
+        st.session_state["phase3_ai_imported"] = True
+
     st.caption(
         "OEM 또는 coolant supplier 자료에서 확인한 값을 직접 입력합니다. "
         "초기값 0은 미입력 상태를 의미하며 H-LiquidOpt가 물성을 생성하지 않습니다."
     )
+    if st.session_state.get(
+        "phase3_ai_imported",
+        False,
+    ):
+        st.success(
+            "✓ Engineer-verified AI specification loaded. "
+            "Review or edit the values below before Phase 3 approval."
+        )
 
     candidate_name = st.text_input(
         "Coolant / Formulation Name",
