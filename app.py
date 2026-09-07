@@ -1706,6 +1706,136 @@ elif phase == 3:
         "※ 본 온도조건은 설계 입력값이며 특정 OEM의 허용범위를 의미하지 않습니다. "
         "실제 적용 전 장비 제조사의 coolant 및 operating-temperature 요구조건을 확인해야 합니다."
     )
+    # -----------------------------------
+    # 3B. COOLANT CANDIDATE SCREENING
+    # -----------------------------------
+    st.divider()
+
+    st.markdown("### 3B · Coolant Candidate Screening")
+
+    c1, c2 = st.columns([1, 4])
+
+    with c1:
+        render_tag("SCREENING", "calculated")
+
+    with c2:
+        st.write(
+            "Coolant 농도를 자동 선정하지 않고, "
+            "설계 검토에 사용할 수 있는 후보군의 데이터 확보 수준과 "
+            "적용 조건을 비교합니다."
+        )
+
+    coolant_candidates = pd.DataFrame(
+        [
+            {
+                "Candidate": "A · Water-based Reference",
+                "Purpose": "Baseline comparison",
+                "Density kg/m³": "Reference data",
+                "Cp kJ/kg·K": "Reference data",
+                "Viscosity mPa·s": "Reference data",
+                "Approval / Data Status": "Reference only",
+            },
+            {
+                "Candidate": "B · OEM/Vendor-approved Glycol Formulation",
+                "Purpose": "Project candidate",
+                "Density kg/m³": "Supplier data required",
+                "Cp kJ/kg·K": "Supplier data required",
+                "Viscosity mPa·s": "Supplier data required",
+                "Approval / Data Status": "OEM / supplier confirmation required",
+            },
+            {
+                "Candidate": "C · PG30 Sensitivity Case",
+                "Purpose": "Hydraulic sensitivity",
+                "Density kg/m³": "1029.85 @ 40°C",
+                "Cp kJ/kg·K": "3.841 @ 40°C",
+                "Viscosity mPa·s": "1.6295 @ 40°C",
+                "Approval / Data Status": "Sensitivity only",
+            },
+        ]
+    )
+
+    st.dataframe(
+        coolant_candidates,
+        use_container_width=True,
+        hide_index=True,
+    )
+    coolant_a, coolant_b, coolant_c = st.columns(3)
+
+    with coolant_a:
+        st.markdown("#### A · Water-based Reference")
+
+        render_tag("REFERENCE", "verified")
+
+        st.write(
+            "Water-based coolant를 기준 유체로 사용하여 "
+            "유량 및 Hydraulic 결과의 비교 기준을 제공합니다."
+        )
+
+        st.info(
+            "Reference case이며 실제 프로젝트 적용 승인을 의미하지 않습니다."
+        )
+
+    with coolant_b:
+        st.markdown("#### B · Approved Formulation")
+
+        render_tag("DATA REQUIRED", "review")
+
+        st.write(
+            "OEM 또는 coolant supplier가 허용한 glycol-based formulation을 "
+            "실제 프로젝트 후보로 검토합니다."
+        )
+
+        st.warning(
+            "농도와 물성값은 임의 생성하지 않고 공급사 property table이 필요합니다."
+        )
+
+    with coolant_c:
+        st.markdown("#### C · PG30 Sensitivity")
+
+        render_tag("SENSITIVITY", "assumption")
+
+        st.write(
+            "PG30 예시 물성을 이용해 점도 및 열물성 변화가 "
+            "유량과 Pump Power에 미치는 영향을 비교합니다."
+        )
+
+        st.warning(
+            "본 후보는 OEM 승인 냉각수 선정안이 아니라 민감도 분석용입니다."
+        )
+    coolant_options = coolant_candidates[
+        "Candidate"
+    ].tolist()
+
+    coolant_choice = st.radio(
+        "Candidate for further engineering review",
+        coolant_options,
+        horizontal=True,
+        key="phase3_coolant_choice",
+    )
+
+    if coolant_choice.startswith("A"):
+        st.info(
+            "Water-based reference가 선택되었습니다. "
+            "Phase 4에서는 기준 물성을 사용한 Hydraulic 계산에 활용할 수 있습니다."
+        )
+
+    elif coolant_choice.startswith("B"):
+        st.warning(
+            "실제 적용 후보입니다. Phase 3 승인 전 OEM 또는 공급사의 "
+            "물성 데이터와 material compatibility 정보 확인이 필요합니다."
+        )
+
+    else:
+        st.warning(
+            "PG30 sensitivity case가 선택되었습니다. "
+            "이 결과는 실제 coolant 선정이 아닌 Hydraulic 영향 비교용으로만 사용합니다."
+        )
+
+    st.caption(
+        "※ H-LiquidOpt는 coolant 농도를 자율적으로 결정하지 않습니다. "
+        "허용 formulation 및 농도범위는 OEM·공급사 요구조건과 "
+        "엔지니어 검토를 통해 확정합니다."
+    ) 
     st.subheader("Phase 3 · Coolant & Material Candidate Review")
     if not st.session_state.approved[2]:
         st.warning("Phase 2 is pending. Coolant comparison remains exploratory.")
