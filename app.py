@@ -497,10 +497,30 @@ if phase == 1:
                 ]
             )
 
+        # -----------------------------------
+        # Equipment Configuration
+        # -----------------------------------
         st.markdown("#### Equipment Configuration")
 
+        equipment_columns = [
+            "rack_id",
+            "equipment",
+            "quantity",
+            "rated_power_kw",
+            "load_factor",
+            "hcr",
+        ]
+
+        equipment_for_editor = st.session_state.equipment_input.copy()
+
+        # 기존 session에 pod / row / col 등이 남아 있어도
+        # Equipment 표에서는 장비 관련 열만 사용
+        equipment_for_editor = equipment_for_editor[
+            equipment_columns
+        ]
+
         edited_equipment = st.data_editor(
-            st.session_state.equipment_input,
+            equipment_for_editor,
             use_container_width=True,
             num_rows="dynamic",
             column_config={
@@ -534,6 +554,116 @@ if phase == 1:
         )
 
         st.session_state.equipment_input = edited_equipment
+
+        # -----------------------------------
+        # Rack Metadata
+        # -----------------------------------
+        st.markdown("#### Rack Metadata")
+
+        st.caption(
+            "Rack Type, Pod 및 배치정보는 장비별이 아니라 Rack별로 한 번만 지정합니다."
+        )
+
+        current_rack_ids = (
+            edited_equipment["rack_id"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+        )
+
+        current_rack_ids = [
+            rack_id
+            for rack_id in current_rack_ids.unique().tolist()
+            if rack_id
+        ]
+
+        if "rack_metadata" not in st.session_state:
+            st.session_state.rack_metadata = pd.DataFrame(
+                columns=[
+                    "rack_id",
+                    "rack_type",
+                    "pod",
+                    "row",
+                    "col",
+                ]
+            )
+
+        metadata = st.session_state.rack_metadata.copy()
+
+        # Equipment 표에 새 Rack ID가 생기면 Metadata에도 자동 추가
+        existing_ids = (
+            metadata["rack_id"].astype(str).tolist()
+            if not metadata.empty
+            else []
+        )
+
+        new_rows = []
+
+        for rack_id in current_rack_ids:
+            if rack_id not in existing_ids:
+                new_rows.append(
+                    {
+                        "rack_id": rack_id,
+                        "rack_type": "compute",
+                        "pod": "A",
+                        "row": 1,
+                        "col": 1,
+                    }
+                )
+
+        if new_rows:
+            metadata = pd.concat(
+                [
+                    metadata,
+                    pd.DataFrame(new_rows),
+                ],
+                ignore_index=True,
+            )
+
+        # 현재 Equipment에 존재하는 Rack만 표시
+        metadata = metadata[
+            metadata["rack_id"].astype(str).isin(
+                current_rack_ids
+            )
+        ].copy()
+
+        edited_metadata = st.data_editor(
+            metadata,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "rack_id": st.column_config.TextColumn(
+                    "Rack ID",
+                    disabled=True,
+                ),
+                "rack_type": st.column_config.SelectboxColumn(
+                    "Rack Type",
+                    options=[
+                        "compute",
+                        "support",
+                        "network",
+                        "storage",
+                        "other",
+                    ],
+                ),
+                "pod": st.column_config.TextColumn(
+                    "Pod",
+                ),
+                "row": st.column_config.NumberColumn(
+                    "Row",
+                    min_value=1,
+                    step=1,
+                ),
+                "col": st.column_config.NumberColumn(
+                    "Column",
+                    min_value=1,
+                    step=1,
+                ),
+            },
+            key="rack_metadata_editor",
+        )
+
+        st.session_state.rack_metadata = edited_metadata
 
         equipment_calc = edited_equipment.copy()
 
