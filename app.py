@@ -5465,6 +5465,9 @@ elif phase == 5:
         "final_decision"
     )
 
+    # -----------------------------------
+    # Cross-check availability
+    # -----------------------------------
     if verified_spec is None:
         st.info(
             "AI Specification Assistant에서 engineer-verified "
@@ -5478,21 +5481,21 @@ elif phase == 5:
         )
 
     else:
-        selected_coolant = (
-            final_decision.get(
-                "coolant"
-            )
+        selected_coolant = final_decision.get(
+            "coolant"
         )
 
         selected_hydraulic = (
             phase5_results[
-                phase5_results[
-                    "coolant"
-                ] == selected_coolant
+                phase5_results["coolant"]
+                == selected_coolant
             ]
             .copy()
         )
 
+        # -----------------------------------
+        # Calculated rack-flow reference
+        # -----------------------------------
         if (
             not selected_hydraulic.empty
             and "rack_flow_lpm"
@@ -5506,11 +5509,12 @@ elif phase == 5:
         else:
             calculated_rack_flow = None
 
+        # -----------------------------------
+        # Design context supplied to AI
+        # -----------------------------------
         design_context = {
-            "topology": (
-                st.session_state.get(
-                    "topology_choice"
-                )
+            "topology": st.session_state.get(
+                "topology_choice"
             ),
 
             "cdu_capacity_mw": (
@@ -5584,6 +5588,9 @@ elif phase == 5:
             ],
         }
 
+        # -----------------------------------
+        # Run AI review
+        # -----------------------------------
         if st.button(
             "🤖 Run AI Final Cross-Check",
             type="primary",
@@ -5595,26 +5602,36 @@ elif phase == 5:
                     "OPENAI_API_KEY"
                 )
 
-                with st.spinner(
-                    "AI is cross-checking the selected design "
-                    "against verified source constraints..."
-                ):
-                    ai_review = cross_check_design(
-                        verified_spec=verified_spec,
-                        final_decision=final_decision,
-                        design_context=design_context,
-                        api_key=api_key,
+                if not api_key:
+                    st.error(
+                        "OPENAI_API_KEY was not found in "
+                        "Streamlit Secrets."
                     )
 
-                st.session_state[
-                    "phase5_ai_crosscheck"
-                ] = ai_review
+                else:
+                    with st.spinner(
+                        "AI is cross-checking the selected design "
+                        "against verified source constraints..."
+                    ):
+                        ai_review = cross_check_design(
+                            verified_spec=verified_spec,
+                            final_decision=final_decision,
+                            design_context=design_context,
+                            api_key=api_key,
+                        )
+
+                    st.session_state[
+                        "phase5_ai_crosscheck"
+                    ] = ai_review
 
             except Exception as e:
                 st.error(
                     f"AI final cross-check failed: {e}"
                 )
 
+        # -----------------------------------
+        # Display saved cross-check result
+        # -----------------------------------
         if (
             "phase5_ai_crosscheck"
             in st.session_state
@@ -5649,185 +5666,199 @@ elif phase == 5:
                     "",
                 )
             )
-checks = ai_review.get(
-    "checks",
-    [],
-)
 
-if checks:
-    st.markdown(
-        "#### Cross-Check Results"
-    )
-
-    # -----------------------------------
-    # Resolve AI source-field references
-    # against the original verified
-    # extraction traceability.
-    # -----------------------------------
-    verified_sources = (
-        verified_spec.get(
-            "sources",
-            [],
-        )
-    )
-
-    source_lookup = {}
-
-    for source in verified_sources:
-        source_field = source.get(
-            "field"
-        )
-
-        if source_field:
-            source_lookup.setdefault(
-                source_field,
-                []
-            ).append(
-                source
+            # ===================================
+            # CROSS-CHECK RESULTS
+            # ===================================
+            checks = ai_review.get(
+                "checks",
+                [],
             )
 
-    enriched_checks = []
-
-    for check in checks:
-
-        source_refs = []
-        evidence_refs = []
-
-        for source_field in check.get(
-            "source_fields",
-            [],
-        ):
-
-            matching_sources = (
-                source_lookup.get(
-                    source_field,
-                    [],
-                )
-            )
-
-            for source in matching_sources:
-
-                page = source.get(
-                    "page"
+            if checks:
+                st.markdown(
+                    "#### Cross-Check Results"
                 )
 
-                if page is not None:
-                    source_refs.append(
-                        f"{source_field} · p.{page}"
+                # -----------------------------------
+                # Original engineer-verified sources
+                # -----------------------------------
+                verified_sources = (
+                    verified_spec.get(
+                        "sources",
+                        [],
                     )
-                else:
-                    source_refs.append(
-                        f"{source_field} · page unavailable"
-                    )
-
-                evidence = source.get(
-                    "evidence"
                 )
 
-                if evidence:
-                    evidence_refs.append(
-                        evidence
+                source_lookup = {}
+
+                for source in verified_sources:
+                    source_field = source.get(
+                        "field"
                     )
 
-        # Remove duplicates while
-        # preserving original order.
-        source_refs = list(
-            dict.fromkeys(
-                source_refs
+                    if source_field:
+                        source_lookup.setdefault(
+                            source_field,
+                            [],
+                        ).append(
+                            source
+                        )
+
+                enriched_checks = []
+
+                # -----------------------------------
+                # Match AI-selected source fields
+                # to original extraction evidence
+                # -----------------------------------
+                for check in checks:
+                    source_refs = []
+                    evidence_refs = []
+
+                    for source_field in check.get(
+                        "source_fields",
+                        [],
+                    ):
+                        matching_sources = (
+                            source_lookup.get(
+                                source_field,
+                                [],
+                            )
+                        )
+
+                        for source in matching_sources:
+                            page = source.get(
+                                "page"
+                            )
+
+                            if page is not None:
+                                source_refs.append(
+                                    f"{source_field} · p.{page}"
+                                )
+                            else:
+                                source_refs.append(
+                                    f"{source_field} · "
+                                    "page unavailable"
+                                )
+
+                            evidence = source.get(
+                                "evidence"
+                            )
+
+                            if evidence:
+                                evidence_refs.append(
+                                    evidence
+                                )
+
+                    # Remove duplicates while
+                    # preserving original order
+                    source_refs = list(
+                        dict.fromkeys(
+                            source_refs
+                        )
+                    )
+
+                    evidence_refs = list(
+                        dict.fromkeys(
+                            evidence_refs
+                        )
+                    )
+
+                    enriched_checks.append(
+                        {
+                            "Category": check.get(
+                                "category",
+                                "",
+                            ),
+
+                            "Status": check.get(
+                                "status",
+                                "",
+                            ),
+
+                            "Finding": check.get(
+                                "message",
+                                "",
+                            ),
+
+                            "Source": (
+                                "; ".join(
+                                    source_refs
+                                )
+                                if source_refs
+                                else (
+                                    "No direct verified source"
+                                )
+                            ),
+
+                            "Evidence": (
+                                " | ".join(
+                                    evidence_refs
+                                )
+                                if evidence_refs
+                                else "-"
+                            ),
+                        }
+                    )
+
+                st.dataframe(
+                    pd.DataFrame(
+                        enriched_checks
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                st.caption(
+                    "Source page and evidence are resolved from "
+                    "the original engineer-verified extraction "
+                    "record. The Final Cross-Check AI does not "
+                    "generate or overwrite source-page information."
+                )
+
+            # ===================================
+            # MISSING VERIFICATIONS
+            # ===================================
+            missing = ai_review.get(
+                "missing_verifications",
+                [],
             )
-        )
 
-        evidence_refs = list(
-            dict.fromkeys(
-                evidence_refs
+            if missing:
+                st.markdown(
+                    "#### Missing / Remaining Verification"
+                )
+
+                for item in missing:
+                    st.write(
+                        f"- {item}"
+                    )
+
+            # ===================================
+            # NEXT ENGINEERING ACTIONS
+            # ===================================
+            next_actions = ai_review.get(
+                "next_actions",
+                [],
             )
-        )
 
-        enriched_checks.append(
-            {
-                "Category": check.get(
-                    "category",
-                    "",
-                ),
+            if next_actions:
+                st.markdown(
+                    "#### Recommended Next Engineering Checks"
+                )
 
-                "Status": check.get(
-                    "status",
-                    "",
-                ),
-
-                "Finding": check.get(
-                    "message",
-                    "",
-                ),
-
-                "Source": (
-                    "; ".join(
-                        source_refs
+                for item in next_actions:
+                    st.write(
+                        f"- {item}"
                     )
-                    if source_refs
-                    else "No direct verified source"
-                ),
 
-                "Evidence": (
-                    " | ".join(
-                        evidence_refs
-                    )
-                    if evidence_refs
-                    else "-"
-                ),
-            }
-        )
+            st.warning(
+                "AI Cross-Check는 설계 승인 또는 안전 인증이 아닙니다. "
+                "최종 적합성 판단은 프로젝트 엔지니어, OEM 및 "
+                "coolant/equipment supplier 검토가 필요합니다."
+            )
 
-    st.dataframe(
-        pd.DataFrame(
-            enriched_checks
-        ),
-        use_container_width=True,
-        hide_index=True,
-    )
 
-    st.caption(
-        "Source page and evidence are resolved from the "
-        "original engineer-verified extraction record. "
-        "The Final Cross-Check AI does not generate or "
-        "overwrite source-page information."
-    )
-            
-missing = ai_review.get(
-    "missing_verifications",
-    [],
-)
-
-if missing:
-    st.markdown(
-        "#### Missing / Remaining Verification"
-    )
-
-    for item in missing:
-        st.write(
-            f"- {item}"
-        )
-
-next_actions = ai_review.get(
-    "next_actions",
-    [],
-)
-
-if next_actions:
-    st.markdown(
-        "#### Recommended Next Engineering Checks"
-    )
-
-    for item in next_actions:
-        st.write(
-            f"- {item}"
-        )
-
-st.warning(
-    "AI Cross-Check는 설계 승인 또는 안전 인증이 아닙니다. "
-    "최종 적합성 판단은 프로젝트 엔지니어, OEM 및 "
-    "coolant/equipment supplier 검토가 필요합니다."
-)
     # ===================================
     # 5E · DECISION HISTORY
     # ===================================
@@ -5849,9 +5880,11 @@ st.warning(
             [
                 "Phase 1",
                 "Rack / Heat-load Model",
-                "Approved"
-                if st.session_state.approved[1]
-                else "Pending",
+                (
+                    "Approved"
+                    if st.session_state.approved[1]
+                    else "Pending"
+                ),
                 st.session_state.get(
                     "phase1_note",
                     "",
@@ -5863,9 +5896,11 @@ st.warning(
                     "topology_choice",
                     "Not selected",
                 ),
-                "Approved"
-                if st.session_state.approved[2]
-                else "Pending",
+                (
+                    "Approved"
+                    if st.session_state.approved[2]
+                    else "Pending"
+                ),
                 st.session_state.get(
                     "phase2_note",
                     "",
@@ -5874,9 +5909,11 @@ st.warning(
             [
                 "Phase 3",
                 phase3_cases_text,
-                "Approved"
-                if st.session_state.approved[3]
-                else "Pending",
+                (
+                    "Approved"
+                    if st.session_state.approved[3]
+                    else "Pending"
+                ),
                 st.session_state.get(
                     "phase3_note",
                     "",
@@ -5885,9 +5922,11 @@ st.warning(
             [
                 "Phase 4",
                 "Deterministic Hydraulic Calculation",
-                "Approved"
-                if st.session_state.approved[4]
-                else "Pending",
+                (
+                    "Approved"
+                    if st.session_state.approved[4]
+                    else "Pending"
+                ),
                 st.session_state.get(
                     "phase4_note",
                     "",
@@ -5909,12 +5948,12 @@ st.warning(
     )
 
     # ===================================
-    # 5E · REPORT EXPORT
+    # 5F · REPORT EXPORT
     # ===================================
     st.divider()
 
     st.markdown(
-        "### 5E · Design Review Export"
+        "### 5F · Design Review Export"
     )
 
     pods = pod_summary(
@@ -5964,5 +6003,12 @@ st.warning(
         use_container_width=True,
     )
 
+
 st.divider()
-st.caption("Prototype only · Not for construction, procurement, safety certification, or final equipment/coolant selection. Project-specific constraints must be verified by qualified engineers and equipment/coolant suppliers.")
+
+st.caption(
+    "Prototype only · Not for construction, procurement, "
+    "safety certification, or final equipment/coolant selection. "
+    "Project-specific constraints must be verified by qualified "
+    "engineers and equipment/coolant suppliers."
+)
