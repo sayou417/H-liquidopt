@@ -4366,7 +4366,73 @@ elif phase == 4:
             "Hydraulic calculation result가 생성되지 않았습니다."
         )
         st.stop()
+    # ===================================
+    # OEM FLOW REFERENCE COMPARISON
+    # ===================================
+    oem_reference = st.session_state.get(
+        "phase4_oem_reference"
+    )
 
+    if (
+        oem_reference
+        and oem_reference.get(
+            "recommended_flow_lpm"
+        ) is not None
+    ):
+        oem_flow = float(
+            oem_reference[
+                "recommended_flow_lpm"
+            ]
+        )
+
+        flow_reference_table = (
+            results[
+                [
+                    "coolant",
+                    "pod",
+                    "rack_flow_lpm",
+                ]
+            ]
+            .copy()
+        )
+
+        flow_reference_table[
+            "OEM Flow Reference LPM"
+        ] = oem_flow
+
+        flow_reference_table[
+            "Difference vs OEM %"
+        ] = (
+            (
+                flow_reference_table[
+                    "rack_flow_lpm"
+                ]
+                / oem_flow
+            )
+            - 1
+        ) * 100
+
+        st.markdown(
+            "#### Thermal Required Flow vs Documented Flow Reference"
+        )
+
+        st.dataframe(
+            flow_reference_table.style.format(
+                {
+                    "rack_flow_lpm": "{:.1f}",
+                    "OEM Flow Reference LPM": "{:.1f}",
+                    "Difference vs OEM %": "{:+.1f}%",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.caption(
+            "Thermal Required Flow is calculated from Q / (Cp·ΔT). "
+            "The documented flow value is shown as an OEM reference. "
+            "A difference does not automatically mean PASS or FAIL."
+        )
     desired_cols = [
         "coolant",
         "pod",
