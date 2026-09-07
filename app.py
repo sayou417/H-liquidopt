@@ -993,21 +993,42 @@ with st.sidebar:
     elif phase == 3:
         st.subheader("Coolant Conditions")
 
-        st.number_input(
+        supply_input = st.number_input(
             "TCS Supply Temperature (°C)",
+            value=float(
+                st.session_state.get(
+                    "supply_t",
+                    35.0,
+                )
+            ),
             step=1.0,
-            key="supply_t",
+            key="phase3_supply_widget",
         )
 
-        st.number_input(
+        return_input = st.number_input(
             "TCS Return Temperature (°C)",
+            value=float(
+                st.session_state.get(
+                    "return_t",
+                    45.0,
+                )
+            ),
             step=1.0,
-            key="return_t",
+            key="phase3_return_widget",
+        )
+
+        # Persistent project values
+        st.session_state["supply_t"] = float(
+            supply_input
+        )
+
+        st.session_state["return_t"] = float(
+            return_input
         )
 
         current_dt = (
-            st.session_state.return_t
-            - st.session_state.supply_t
+            st.session_state["return_t"]
+            - st.session_state["supply_t"]
         )
 
         st.metric(
