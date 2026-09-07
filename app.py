@@ -28,7 +28,6 @@ st.set_page_config(
     layout="wide",
 )
 
-
 # =========================================
 # TEMPORARY OPENAI CONNECTION TEST
 # =========================================
@@ -60,7 +59,6 @@ with st.expander("🔌 AI Connection Test", expanded=False):
             st.error(
                 f"OpenAI connection failed: {e}"
             )
-
 
 st.markdown("""
 <style>
