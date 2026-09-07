@@ -1131,6 +1131,49 @@ with st.sidebar:
             f"{sum(bool(st.session_state.approved[p]) for p in [1,2,3,4])} / 4",
         )
 
+# Values persist even when their input widgets are hidden
+supply_t = float(st.session_state.supply_t)
+return_t = float(st.session_state.return_t)
+delta_t = return_t - supply_t
+
+cdu_capacity = float(st.session_state.cdu_capacity)
+redundancy = st.session_state.redundancy
+
+common_d = float(st.session_state.common_d)
+row_d = float(st.session_state.row_d)
+branch_d = float(st.session_state.branch_d)
+
+common_l = float(st.session_state.common_l)
+row_l = float(st.session_state.row_l)
+branch_l = float(st.session_state.branch_l)
+
+rack_dp = float(st.session_state.rack_dp)
+
+
+geom = HydraulicGeometry(
+    common_length_m=common_l,
+    common_diameter_m=common_d,
+    row_length_m=row_l,
+    row_diameter_m=row_d,
+    branch_length_m=branch_l,
+    branch_diameter_m=branch_d,
+    rack_dp_reference_kpa=rack_dp,
+)
+
+errors = validate_racks(st.session_state.racks)
+if errors:
+    st.error("Rack input validation failed:\n- " + "\n- ".join(errors))
+    st.stop()
+
+calc_now = heat_loads(st.session_state.racks)
+progress_count = sum(bool(st.session_state.approved[p]) for p in [1,2,3,4])
+st.progress(progress_count / 4, text=f"Engineer review progress · {progress_count}/4 phases approved")
+
+hero1, hero2, hero3, hero4 = st.columns(4)
+hero1.metric("Rack count", f"{len(calc_now)}")
+hero2.metric("Pods", f"{calc_now['pod'].nunique()}")
+hero3.metric("IT load", f"{calc_now['it_power_kw'].sum()/1000:.2f} MW")
+hero4.metric("Liquid load", f"{calc_now['liquid_load_kw'].sum()/1000:.2f} MW")
 
 # Values persist even when their input widgets are hidden
 supply_t = float(st.session_state.supply_t)
