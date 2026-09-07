@@ -4140,112 +4140,112 @@ elif phase == 4:
             "Not selected",
         ),
     )
-        # ===================================
-        # VERIFIED OEM OPERATING REFERENCE
-        # ===================================
-        oem_reference = st.session_state.get(
-            "phase4_oem_reference"
+    # ===================================
+    # VERIFIED OEM OPERATING REFERENCE
+    # ===================================
+    oem_reference = st.session_state.get(
+        "phase4_oem_reference"
+    )
+
+    if oem_reference:
+        st.markdown(
+            "#### Verified OEM Operating Reference"
         )
-    
-        if oem_reference:
-            st.markdown(
-                "#### Verified OEM Operating Reference"
-            )
-    
-            render_tag(
-                "ENGINEER VERIFIED",
-                "verified",
-            )
-    
-            o1, o2, o3 = st.columns(3)
-    
-            supply_min = oem_reference.get(
-                "supply_temp_min_c"
-            )
-    
-            supply_max = oem_reference.get(
-                "supply_temp_max_c"
-            )
-    
-            recommended_flow = oem_reference.get(
-                "recommended_flow_lpm"
-            )
-    
-            oem_rack_dp = oem_reference.get(
-                "pressure_drop_kpa"
-            )
-    
-            with o1:
-                if (
-                    supply_min is not None
-                    and supply_max is not None
-                ):
-                    st.metric(
-                        "Documented Supply Range",
-                        f"{supply_min:.1f}–{supply_max:.1f} °C",
-                    )
-                else:
-                    st.metric(
-                        "Documented Supply Range",
-                        "Not available",
-                    )
-    
-            with o2:
-                if recommended_flow is not None:
-                    st.metric(
-                        "Documented Flow Reference",
-                        f"{recommended_flow:.1f} L/min",
-                    )
-                else:
-                    st.metric(
-                        "Documented Flow Reference",
-                        "Not available",
-                    )
-    
-            with o3:
-                if oem_rack_dp is not None:
-                    st.metric(
-                        "Documented Rack ΔP",
-                        f"{oem_rack_dp:.1f} kPa",
-                    )
-                else:
-                    st.metric(
-                        "Documented Rack ΔP",
-                        "Not available",
-                    )
-    
-            # -----------------------------------
-            # Supply temperature constraint check
-            # -----------------------------------
+
+        render_tag(
+            "ENGINEER VERIFIED",
+            "verified",
+        )
+
+        o1, o2, o3 = st.columns(3)
+
+        supply_min = oem_reference.get(
+            "supply_temp_min_c"
+        )
+
+        supply_max = oem_reference.get(
+            "supply_temp_max_c"
+        )
+
+        recommended_flow = oem_reference.get(
+            "recommended_flow_lpm"
+        )
+
+        oem_rack_dp = oem_reference.get(
+            "pressure_drop_kpa"
+        )
+
+        with o1:
             if (
                 supply_min is not None
                 and supply_max is not None
             ):
-                if (
-                    supply_min
-                    <= phase4_supply_t
-                    <= supply_max
-                ):
-                    st.success(
-                        f"✓ Current design supply temperature "
-                        f"{phase4_supply_t:.1f} °C is within the "
-                        f"documented range "
-                        f"{supply_min:.1f}–{supply_max:.1f} °C."
-                    )
-    
-                else:
-                    st.error(
-                        f"Current design supply temperature "
-                        f"{phase4_supply_t:.1f} °C is outside the "
-                        f"documented range "
-                        f"{supply_min:.1f}–{supply_max:.1f} °C."
-                    )
-    
-            st.caption(
-                "These values were extracted from the source document "
-                "and engineer-verified. They are reference constraints, "
-                "not automatically imposed calculation inputs."
-            )
+                st.metric(
+                    "Documented Supply Range",
+                    f"{supply_min:.1f}–{supply_max:.1f} °C",
+                )
+            else:
+                st.metric(
+                    "Documented Supply Range",
+                    "Not available",
+                )
+
+        with o2:
+            if recommended_flow is not None:
+                st.metric(
+                    "Documented Flow Reference",
+                    f"{recommended_flow:.1f} L/min",
+                )
+            else:
+                st.metric(
+                    "Documented Flow Reference",
+                    "Not available",
+                )
+
+        with o3:
+            if oem_rack_dp is not None:
+                st.metric(
+                    "Documented Rack ΔP",
+                    f"{oem_rack_dp:.1f} kPa",
+                )
+            else:
+                st.metric(
+                    "Documented Rack ΔP",
+                    "Not available",
+                )
+
+        # -----------------------------------
+        # Supply temperature constraint check
+        # -----------------------------------
+        if (
+            supply_min is not None
+            and supply_max is not None
+        ):
+            if (
+                supply_min
+                <= phase4_supply_t
+                <= supply_max
+            ):
+                st.success(
+                    f"✓ Current design supply temperature "
+                    f"{phase4_supply_t:.1f} °C is within the "
+                    f"documented range "
+                    f"{supply_min:.1f}–{supply_max:.1f} °C."
+                )
+
+            else:
+                st.error(
+                    f"Current design supply temperature "
+                    f"{phase4_supply_t:.1f} °C is outside the "
+                    f"documented range "
+                    f"{supply_min:.1f}–{supply_max:.1f} °C."
+                )
+
+        st.caption(
+            "These values were extracted from the source document "
+            "and engineer-verified. They are reference constraints, "
+            "not automatically imposed calculation inputs."
+        )
     st.info(
         "계산 흐름: Heat Load → Required Flow → Pipe Velocity → "
         "Reynolds / Friction Factor → Pressure Drop → Pump Power"
