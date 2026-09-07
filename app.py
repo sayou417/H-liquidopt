@@ -712,16 +712,42 @@ if phase == 1:
             * equipment_calc["hcr_numeric"]
         )
 
+        # -----------------------------------
+        # Aggregate equipment → Rack power
+        # -----------------------------------
         rack_level = (
             equipment_calc
             .groupby("rack_id", as_index=False)
             .agg(
                 it_power_kw=("design_power_kw", "sum"),
                 liquid_design_kw=("liquid_design_kw", "sum"),
-                pod=("pod", "first"),
-                row=("row", "first"),
-                col=("col", "first"),
             )
+        )
+        # Effective Rack HCR
+        rack_level["hcr"] = rack_level.apply(
+            lambda x: (
+                x["liquid_design_kw"] / x["it_power_kw"]
+                if x["it_power_kw"] > 0
+                else 0.0
+            ),
+            axis=1,
+        )
+
+        # -----------------------------------
+        # Merge Rack Metadata
+        # -----------------------------------
+        rack_level = rack_level.merge(
+            edited_metadata[
+                [
+                    "rack_id",
+                    "rack_type",
+                    "pod",
+                    "row",
+                    "col",
+                ]
+            ],
+            on="rack_id",
+            how="left",
         )
 
         rack_level["hcr"] = rack_level.apply(
@@ -736,6 +762,7 @@ if phase == 1:
         detailed_racks = rack_level[
             [
                 "rack_id",
+                "rack_type",
                 "pod",
                 "it_power_kw",
                 "hcr",
