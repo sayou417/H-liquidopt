@@ -1901,7 +1901,7 @@ elif phase == 3:
         f"{baseline_temp:.1f} °C",
     )
 
-        st.markdown("##### Reference & Source")
+    st.markdown("##### Reference & Source")
 
     st.write(
         f"**Baseline basis:** {baseline_name} · "
