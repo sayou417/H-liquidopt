@@ -433,3 +433,224 @@ deterministic calculation workflow.
         ) from exc
 
     return result
+# =========================================================
+# Final Design Cross-Check
+# =========================================================
+
+FINAL_REVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "overall_status": {
+            "type": "string",
+            "enum": [
+                "NO_OBVIOUS_CONFLICT",
+                "REVIEW_REQUIRED",
+                "INSUFFICIENT_DATA",
+            ],
+        },
+
+        "summary": {
+            "type": "string"
+        },
+
+        "checks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "CONSISTENT",
+                            "REVIEW_REQUIRED",
+                            "INSUFFICIENT_DATA",
+                            "NOT_APPLICABLE",
+                        ],
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                },
+                "required": [
+                    "category",
+                    "status",
+                    "message",
+                ],
+                "additionalProperties": False,
+            },
+        },
+
+        "missing_verifications": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+        },
+
+        "next_actions": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+        },
+    },
+
+    "required": [
+        "overall_status",
+        "summary",
+        "checks",
+        "missing_verifications",
+        "next_actions",
+    ],
+
+    "additionalProperties": False,
+}
+
+
+def cross_check_design(
+    verified_spec,
+    final_decision,
+    design_context,
+    api_key=None,
+):
+    """
+    AI-assisted final engineering cross-check.
+
+    The function reviews a selected preliminary-design
+    scenario against engineer-verified source constraints.
+
+    It does NOT approve or certify the design.
+    """
+
+    client = get_openai_client(
+        api_key
+    )
+
+    review_input = {
+        "engineer_verified_specification": verified_spec,
+        "engineer_selected_scenario": final_decision,
+        "design_context": design_context,
+    }
+
+    instructions = """
+You are the final engineering cross-check assistant
+for H-LiquidOpt.
+
+You are reviewing a preliminary D2C liquid-cooling design.
+
+The engineering calculations have already been performed
+by a deterministic physics engine.
+
+Your job is NOT to recalculate the hydraulic model and
+NOT to approve the design.
+
+Review the engineer-selected scenario against the
+engineer-verified source specification and identify:
+
+- clear consistency
+- possible conflicts
+- missing evidence
+- assumptions still requiring verification
+- important next engineering checks
+
+IMPORTANT RULES
+
+1. Never certify, approve, or declare the design safe.
+
+2. Never invent an OEM requirement.
+
+3. Treat engineer_verified_specification as the verified
+   source-reference dataset.
+
+4. If information is insufficient, explicitly return
+   INSUFFICIENT_DATA.
+
+5. A documented recommended flow is NOT automatically
+   a hard minimum or maximum unless the source explicitly
+   established it as such.
+
+6. Do NOT directly compare rack internal pressure drop
+   with total system/network pressure drop.
+   They represent different hydraulic boundaries.
+
+7. A documented rack pressure drop may only be treated
+   as a reference at its documented operating condition.
+
+8. If the selected coolant differs from the documented
+   coolant/formulation, do NOT automatically call it
+   incompatible. Flag it for OEM/supplier review unless
+   explicit incompatibility evidence exists.
+
+9. Check the project supply temperature against the
+   documented supply-temperature range when both exist.
+
+10. Pipe-diameter sensitivity cases are conceptual
+    preliminary-design scenarios, not final standard pipe
+    size selections.
+
+11. Pump power, pressure drop and flow calculated by
+    H-LiquidOpt are deterministic calculation outputs.
+    Do not replace them with invented values.
+
+12. Highlight placeholders such as synthetic rack ΔP,
+    missing OEM pressure-flow curves, material compatibility,
+    water chemistry, fitting/minor losses, routing and CAPEX
+    when relevant.
+
+13. Keep the review concise and engineering-focused.
+
+Return only the required structured review.
+"""
+
+    response = client.responses.create(
+        model="gpt-5.6-terra",
+
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            instructions
+                            + "\n\nDESIGN DATA:\n"
+                            + json.dumps(
+                                review_input,
+                                ensure_ascii=False,
+                                indent=2,
+                            )
+                        ),
+                    }
+                ],
+            }
+        ],
+
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "hliquidopt_final_crosscheck",
+                "strict": True,
+                "schema": FINAL_REVIEW_SCHEMA,
+            }
+        },
+
+        store=False,
+    )
+
+    if not response.output_text:
+        raise RuntimeError(
+            "AI returned an empty final cross-check."
+        )
+
+    try:
+        return json.loads(
+            response.output_text
+        )
+
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "AI final cross-check could not be parsed."
+        ) from exc
