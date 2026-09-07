@@ -1054,11 +1054,16 @@ if phase == 1:
         disabled=not ready_phase1,
         use_container_width=True,
     ):
+        # 승인된 Phase 1 설계 데이터를 Phase 2로 전달
+        st.session_state.phase1_racks = edited_racks.copy()
+        st.session_state.phase1_input_mode = input_mode
+
         st.session_state.approved[1] = True
 
         st.success(
             "Phase 1 approved. "
-            "Phase 2에서 TCS / CDU 후보를 검토할 수 있습니다."
+            "승인된 Rack Load Model이 Phase 2로 전달되었습니다."
+        )
         )
 
     if st.session_state.approved[1]:
@@ -1067,10 +1072,30 @@ if phase == 1:
         )
 
 elif phase == 2:
-    st.subheader("Phase 2 · TCS / CDU Candidate Review")
+    st.header("Phase 2 · TCS / CDU Candidate Review")
+
+    st.caption(
+        "Phase 1에서 승인된 Liquid Heat Load를 기반으로 "
+        "TCS 구성과 CDU 배치 후보를 비교합니다."
+    )
+
     if not st.session_state.approved[1]:
-        st.warning("Phase 1 is pending. Results below are exploratory until the engineer approves the load model.")
-    pods = pod_summary(st.session_state.racks)
+        st.warning(
+            "Phase 1 Engineer Review가 아직 완료되지 않았습니다. "
+            "Phase 1을 승인한 후 TCS / CDU 후보를 검토할 수 있습니다."
+        )
+        st.stop()
+
+    if "phase1_racks" not in st.session_state:
+        st.error(
+            "승인된 Phase 1 Rack 데이터가 없습니다. "
+            "Phase 1에서 Engineer Review를 다시 승인해주세요."
+        )
+        st.stop()
+
+    phase1_racks = st.session_state.phase1_racks.copy()
+
+    pods = pod_summary(phase1_racks)
     pods["CDU loading %"] = pods["liquid_load_kw"] / (cdu_capacity*1000) * 100
     total_liquid = pods["liquid_load_kw"].sum()
     min_duty = recommended_duty_cdus(total_liquid, cdu_capacity)
