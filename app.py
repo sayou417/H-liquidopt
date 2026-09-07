@@ -2722,75 +2722,1031 @@ elif phase == 3:
         )
 
 elif phase == 4:
-    st.subheader("Phase 4 · Deterministic Hydraulic Calculation")
-    if delta_t <= 0:
-        st.error("Return temperature must be greater than supply temperature.")
-        st.stop()
-    if not st.session_state.approved[3]:
-        st.warning("Phase 3 is pending. Default numerical candidates are used for exploratory calculation.")
-    cdf = load_default_coolants()
-    names = st.session_state.get("coolant_names", ["Water-based reference","PG30 sensitivity fluid"])
-    calc_cdf = cdf[cdf["name"].isin(names)].dropna(subset=["rho_kg_m3","cp_kj_kgk","mu_pa_s"]).copy()
-    if calc_cdf.empty:
-        st.error("No coolant candidate has complete numerical properties.")
-        st.stop()
-    coolants = [Coolant(row["name"], float(row["rho_kg_m3"]), float(row["cp_kj_kgk"]), float(row["mu_pa_s"]), row.get("status", "")) for _,row in calc_cdf.iterrows()]
-    results = evaluate_coolants(st.session_state.racks, coolants, delta_t, geom)
+    st.header("Phase 4 · Deterministic Hydraulic Physics Engine")
 
-    show_cols = ["coolant","pod","liquid_racks","liquid_load_kw","rack_avg_heat_kw","rack_flow_lpm","pod_flow_lpm","branch_velocity_m_s","network_dp_kpa","rack_dp_kpa","total_dp_kpa","pump_kw"]
-    st.dataframe(results[show_cols], use_container_width=True, hide_index=True)
-    st.caption("Rack internal ΔP is a synthetic placeholder in this PoC. Replace it with an OEM pressure-flow curve for engineering use.")
-
-    f1,f2 = st.columns(2)
-    with f1:
-        fig = px.bar(results, x="pod", y="pump_kw", color="coolant", barmode="group", title="Pump electric power by pod")
-        st.plotly_chart(fig, use_container_width=True)
-    with f2:
-        fig2 = px.bar(results, x="pod", y="total_dp_kpa", color="coolant", barmode="group", title="Calculated pressure drop by pod")
-        st.plotly_chart(fig2, use_container_width=True)
-
-    st.download_button("Download hydraulic CSV", results.to_csv(index=False).encode("utf-8-sig"), "hliquidopt_hydraulics.csv", "text/csv")
-    st.text_area("Engineer calculation review note", key="phase4_note", placeholder="Example: OEM rack pressure-flow curve must replace placeholder before design issue.")
-    if st.button("✓ Approve Phase 4 calculation review", type="primary"):
-        st.session_state.hydraulic_results = results
-        st.session_state.approved[4] = True
-        st.success("Phase 4 marked reviewed.")
-
-else:
-    st.subheader("Phase 5 · Candidate Comparison & Engineer Decision")
-    if delta_t <= 0:
-        st.error("Return temperature must be greater than supply temperature.")
-        st.stop()
-    cdf = load_default_coolants()
-    names = st.session_state.get("coolant_names", ["Water-based reference","PG30 sensitivity fluid"])
-    calc_cdf = cdf[cdf["name"].isin(names)].dropna(subset=["rho_kg_m3","cp_kj_kgk","mu_pa_s"]).copy()
-    coolants = [Coolant(row["name"], float(row["rho_kg_m3"]), float(row["cp_kj_kgk"]), float(row["mu_pa_s"]), row.get("status", "")) for _,row in calc_cdf.iterrows()]
-    results = evaluate_coolants(st.session_state.racks, coolants, delta_t, geom)
-    ranking = candidate_score_table(results, cdu_capacity)
-    pods = pod_summary(st.session_state.racks)
-
-    st.markdown("#### Hydraulic sensitivity ranking")
-    st.dataframe(ranking[["rank","coolant","total_pump_kw","worst_dp_kpa","cdu_loading_pct","balanced_score"]], use_container_width=True, hide_index=True)
-    best = ranking.iloc[0]
-    st.success(
-        f"Current balanced hydraulic sensitivity candidate: {best['coolant']} · "
-        f"Pump {best['total_pump_kw']:.2f} kW · Worst ΔP {best['worst_dp_kpa']:.1f} kPa"
+    st.caption(
+        "Phase 1~3에서 승인된 Heat Load, Coolant 물성 및 설계조건을 이용해 "
+        "Required Flow → Velocity → Reynolds / Friction → Pressure Drop → "
+        "Pump Power를 결정론적으로 계산합니다."
     )
-    st.warning("This ranking is not a final coolant or equipment recommendation. OEM approval, freeze protection, water chemistry, material compatibility and project-specific design criteria remain mandatory.")
 
-    st.markdown("#### Decision history")
-    hist = pd.DataFrame([
-        ["Phase 1", "Rack / heat-load model", "Approved" if st.session_state.approved[1] else "Pending", st.session_state.get("phase1_note", "")],
-        ["Phase 2", st.session_state.get("topology_choice", "Not selected"), "Approved" if st.session_state.approved[2] else "Pending", st.session_state.get("phase2_note", "")],
-        ["Phase 3", ", ".join(names), "Approved" if st.session_state.approved[3] else "Pending", st.session_state.get("phase3_note", "")],
-        ["Phase 4", "Deterministic hydraulic calculation", "Approved" if st.session_state.approved[4] else "Pending", st.session_state.get("phase4_note", "")],
-    ], columns=["Phase","Decision / Result","Status","Engineer note"])
-    st.dataframe(hist, use_container_width=True, hide_index=True)
+    # ===================================
+    # PHASE 3 APPROVAL GATE
+    # ===================================
+    if not st.session_state.approved[3]:
+        st.warning(
+            "Phase 3 Engineer Review가 아직 완료되지 않았습니다. "
+            "Coolant analysis case를 승인한 후 Hydraulic 계산을 진행해주세요."
+        )
+        st.stop()
 
-    report = project_report_markdown(st.session_state.racks, pods, ranking, names, delta_t, cdu_capacity, redundancy)
-    c1,c2 = st.columns(2)
-    c1.download_button("Download design-review report (.md)", report.encode("utf-8-sig"), "H-LiquidOpt_design_review.md", "text/markdown", use_container_width=True)
-    c2.download_button("Download current rack dataset (.csv)", st.session_state.racks.to_csv(index=False).encode("utf-8-sig"), "H-LiquidOpt_current_racks.csv", "text/csv", use_container_width=True)
+    if "phase1_racks" not in st.session_state:
+        st.error(
+            "승인된 Phase 1 Rack Load Model이 없습니다."
+        )
+        st.stop()
+
+    if "phase3_analysis_cases" not in st.session_state:
+        st.error(
+            "Phase 3에서 승인된 coolant analysis case가 없습니다."
+        )
+        st.stop()
+
+    phase4_racks = (
+        st.session_state.phase1_racks.copy()
+    )
+
+    selected_cases = (
+        st.session_state.phase3_analysis_cases
+    )
+
+    phase4_supply_t = (
+        st.session_state.get(
+            "phase3_supply_t",
+            supply_t,
+        )
+    )
+
+    phase4_return_t = (
+        st.session_state.get(
+            "phase3_return_t",
+            return_t,
+        )
+    )
+
+    phase4_delta_t = (
+        phase4_return_t
+        - phase4_supply_t
+    )
+
+    if phase4_delta_t <= 0:
+        st.error(
+            "승인된 Return Temperature는 Supply Temperature보다 높아야 합니다."
+        )
+        st.stop()
+
+    # ===================================
+    # BUILD APPROVED COOLANT INPUTS
+    # ===================================
+    coolants = []
+
+    # A · Baseline
+    if (
+        "A · Baseline Reference"
+        in selected_cases
+    ):
+        baseline_data = (
+            st.session_state.get(
+                "phase3_baseline"
+            )
+        )
+
+        if baseline_data:
+            coolants.append(
+                Coolant(
+                    baseline_data["name"],
+                    float(
+                        baseline_data["rho_kg_m3"]
+                    ),
+                    float(
+                        baseline_data["cp_kj_kgk"]
+                    ),
+                    float(
+                        baseline_data["mu_pa_s"]
+                    ),
+                    "Baseline Reference",
+                )
+            )
+
+    # B · Project Candidate
+    if (
+        "B · Project Candidate"
+        in selected_cases
+    ):
+        candidate_data = (
+            st.session_state.get(
+                "phase3_supplier_coolant"
+            )
+        )
+
+        if candidate_data:
+            coolants.append(
+                Coolant(
+                    candidate_data["name"],
+                    float(
+                        candidate_data["rho_kg_m3"]
+                    ),
+                    float(
+                        candidate_data["cp_kj_kgk"]
+                    ),
+                    float(
+                        candidate_data["mu_pa_s"]
+                    ),
+                    "Project Candidate",
+                )
+            )
+        else:
+            st.warning(
+                "B Project Candidate가 선택되었지만 "
+                "승인된 numerical property data를 찾을 수 없습니다."
+            )
+
+    # C · Sensitivity
+    if (
+        "C · PG30 Sensitivity"
+        in selected_cases
+    ):
+        sensitivity_data = (
+            st.session_state.get(
+                "phase3_sensitivity"
+            )
+        )
+
+        if sensitivity_data:
+            coolants.append(
+                Coolant(
+                    sensitivity_data["name"],
+                    float(
+                        sensitivity_data["rho_kg_m3"]
+                    ),
+                    float(
+                        sensitivity_data["cp_kj_kgk"]
+                    ),
+                    float(
+                        sensitivity_data["mu_pa_s"]
+                    ),
+                    "Sensitivity Case",
+                )
+            )
+
+    if not coolants:
+        st.error(
+            "Phase 4에서 계산 가능한 승인 coolant case가 없습니다."
+        )
+        st.stop()
+
+    # ===================================
+    # 4A · HYDRAULIC DESIGN BASIS
+    # ===================================
+    st.markdown(
+        "### 4A · Hydraulic Design Basis"
+    )
+
+    b1, b2 = st.columns([1, 4])
+
+    with b1:
+        render_tag(
+            "PHASE 3 APPROVED",
+            "verified",
+        )
+
+    with b2:
+        st.write(
+            "Thermal Required Flow는 사용자가 임의 입력하지 않고 "
+            "Liquid Heat Load, Coolant Cp·Density 및 ΔT로 계산합니다."
+        )
+
+    phase4_heat = heat_loads(
+        phase4_racks
+    )
+
+    total_liquid_kw = (
+        phase4_heat[
+            "liquid_load_kw"
+        ].sum()
+    )
+
+    m1, m2, m3, m4 = st.columns(4)
+
+    m1.metric(
+        "Liquid Heat Load",
+        f"{total_liquid_kw / 1000:.2f} MW",
+    )
+
+    m2.metric(
+        "Design ΔT",
+        f"{phase4_delta_t:.1f} K",
+    )
+
+    m3.metric(
+        "Coolant Cases",
+        f"{len(coolants)}",
+    )
+
+    m4.metric(
+        "Approved Topology",
+        st.session_state.get(
+            "topology_choice",
+            "Not selected",
+        ),
+    )
+
+    st.info(
+        "계산 흐름: Heat Load → Required Flow → Pipe Velocity → "
+        "Reynolds / Friction Factor → Pressure Drop → Pump Power"
+    )
+
+    # ===================================
+    # 4B · PIPE / COMPONENT INPUT REVIEW
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 4B · Pipe & Component Inputs"
+    )
+
+    p1, p2 = st.columns([1, 4])
+
+    with p1:
+        render_tag(
+            "USER INPUT",
+            "input",
+        )
+
+    with p2:
+        st.write(
+            "Phase 4 Sidebar에서 입력한 배관 직경, 길이 및 Rack ΔP 가정을 "
+            "Hydraulic 계산의 geometry 조건으로 사용합니다."
+        )
+
+    geometry_table = pd.DataFrame(
+        [
+            {
+                "Section": "Common Pipe",
+                "Diameter m": st.session_state.get(
+                    "common_d",
+                    0.2027,
+                ),
+                "Length m": st.session_state.get(
+                    "common_l",
+                    20.0,
+                ),
+            },
+            {
+                "Section": "Row Header",
+                "Diameter m": st.session_state.get(
+                    "row_d",
+                    0.1541,
+                ),
+                "Length m": st.session_state.get(
+                    "row_l",
+                    12.0,
+                ),
+            },
+            {
+                "Section": "Rack Branch",
+                "Diameter m": st.session_state.get(
+                    "branch_d",
+                    0.0525,
+                ),
+                "Length m": st.session_state.get(
+                    "branch_l",
+                    6.0,
+                ),
+            },
+        ]
+    )
+
+    st.dataframe(
+        geometry_table,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    rack_dp_assumption = float(
+        st.session_state.get(
+            "rack_dp",
+            120.0,
+        )
+    )
+
+    st.warning(
+        f"현재 Rack internal ΔP = {rack_dp_assumption:.1f} kPa는 "
+        "PoC용 설계 가정입니다. 실제 설계에서는 OEM Rack / Cold Plate의 "
+        "pressure-flow curve로 교체해야 합니다."
+    )
+
+    # ===================================
+    # 4C · DETERMINISTIC CALCULATION
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 4C · Deterministic Hydraulic Calculation"
+    )
+
+    c1, c2 = st.columns([1, 4])
+
+    with c1:
+        render_tag(
+            "CALCULATED",
+            "calculated",
+        )
+
+    with c2:
+        st.write(
+            "동일한 Rack Load와 동일 배관 Geometry에 대해 "
+            "Phase 3에서 승인된 각 coolant case를 계산합니다."
+        )
+
+    results = evaluate_coolants(
+        phase4_racks,
+        coolants,
+        phase4_delta_t,
+        geom,
+    )
+
+    if results.empty:
+        st.error(
+            "Hydraulic calculation result가 생성되지 않았습니다."
+        )
+        st.stop()
+
+    desired_cols = [
+        "coolant",
+        "pod",
+        "liquid_racks",
+        "liquid_load_kw",
+        "rack_avg_heat_kw",
+        "rack_flow_lpm",
+        "pod_flow_lpm",
+        "branch_velocity_m_s",
+        "network_dp_kpa",
+        "rack_dp_kpa",
+        "total_dp_kpa",
+        "pump_kw",
+    ]
+
+    show_cols = [
+        col
+        for col in desired_cols
+        if col in results.columns
+    ]
+
+    st.dataframe(
+        results[show_cols],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.caption(
+        "※ Flow는 Q = ṁCpΔT로부터 계산된 Thermal Required Flow입니다. "
+        "현재 Rack ΔP는 synthetic placeholder이며, 최종 설계값이 아닙니다."
+    )
+
+    # ===================================
+    # 4D · COOLANT HYDRAULIC COMPARISON
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 4D · Hydraulic Case Comparison"
+    )
+
+    hydraulic_summary = (
+        results
+        .groupby(
+            "coolant",
+            as_index=False,
+        )
+        .agg(
+            Total_Flow_LPM=(
+                "pod_flow_lpm",
+                "sum",
+            ),
+            Max_Branch_Velocity_m_s=(
+                "branch_velocity_m_s",
+                "max",
+            ),
+            Worst_Total_DP_kPa=(
+                "total_dp_kpa",
+                "max",
+            ),
+            Total_Pump_kW=(
+                "pump_kw",
+                "sum",
+            ),
+        )
+    )
+
+    st.dataframe(
+        hydraulic_summary,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # -----------------------------------
+    # Relative comparison against A
+    # -----------------------------------
+    baseline_data = (
+        st.session_state.get(
+            "phase3_baseline"
+        )
+    )
+
+    if baseline_data:
+        baseline_name = (
+            baseline_data["name"]
+        )
+
+        base_match = hydraulic_summary[
+            hydraulic_summary["coolant"]
+            == baseline_name
+        ]
+
+        if not base_match.empty:
+            base_row = base_match.iloc[0]
+
+            relative_hydraulic = (
+                hydraulic_summary.copy()
+            )
+
+            def relative_change(
+                value,
+                baseline_value,
+            ):
+                if baseline_value == 0:
+                    return 0.0
+
+                return (
+                    value
+                    / baseline_value
+                    - 1
+                ) * 100
+
+            relative_hydraulic[
+                "Flow Δ vs A %"
+            ] = relative_hydraulic[
+                "Total_Flow_LPM"
+            ].apply(
+                lambda x: relative_change(
+                    x,
+                    base_row[
+                        "Total_Flow_LPM"
+                    ],
+                )
+            )
+
+            relative_hydraulic[
+                "Worst ΔP Δ vs A %"
+            ] = relative_hydraulic[
+                "Worst_Total_DP_kPa"
+            ].apply(
+                lambda x: relative_change(
+                    x,
+                    base_row[
+                        "Worst_Total_DP_kPa"
+                    ],
+                )
+            )
+
+            relative_hydraulic[
+                "Pump Power Δ vs A %"
+            ] = relative_hydraulic[
+                "Total_Pump_kW"
+            ].apply(
+                lambda x: relative_change(
+                    x,
+                    base_row[
+                        "Total_Pump_kW"
+                    ],
+                )
+            )
+
+            st.markdown(
+                "#### Relative to Baseline A"
+            )
+
+            st.dataframe(
+                relative_hydraulic[
+                    [
+                        "coolant",
+                        "Flow Δ vs A %",
+                        "Worst ΔP Δ vs A %",
+                        "Pump Power Δ vs A %",
+                    ]
+                ].style.format(
+                    {
+                        "Flow Δ vs A %": "{:+.1f}%",
+                        "Worst ΔP Δ vs A %": "{:+.1f}%",
+                        "Pump Power Δ vs A %": "{:+.1f}%",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    # -----------------------------------
+    # Charts
+    # -----------------------------------
+    f1, f2 = st.columns(2)
+
+    with f1:
+        fig = px.bar(
+            results,
+            x="pod",
+            y="pump_kw",
+            color="coolant",
+            barmode="group",
+            title="Pump Electric Power by Pod",
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+        )
+
+    with f2:
+        fig2 = px.bar(
+            results,
+            x="pod",
+            y="total_dp_kpa",
+            color="coolant",
+            barmode="group",
+            title="Calculated Pressure Drop by Pod",
+        )
+
+        st.plotly_chart(
+            fig2,
+            use_container_width=True,
+        )
+
+    st.caption(
+        "점도 증가가 Pump Power에 동일 비율로 직접 반영되는 것은 아닙니다. "
+        "Coolant 물성은 Required Flow, Reynolds number, friction factor 및 "
+        "Pressure Drop을 통해 복합적으로 Hydraulic 결과에 영향을 줍니다."
+    )
+
+    # ===================================
+    # 4E · ENGINEERING CONSTRAINT REVIEW
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 4E · Engineering Constraint Review"
+    )
+
+    r1, r2 = st.columns([1, 4])
+
+    with r1:
+        render_tag(
+            "REVIEW REQUIRED",
+            "review",
+        )
+
+    with r2:
+        st.write(
+            "Physics Engine의 계산결과와 현재 적용된 가정의 한계를 "
+            "엔지니어가 확인합니다."
+        )
+
+    st.info(
+        "현재 PoC는 임의의 universal velocity / pressure-drop 기준을 "
+        "자동 적용하지 않습니다. 실제 허용범위는 프로젝트 기준, "
+        "OEM 요구조건 및 배관 설계기준을 통해 검증해야 합니다."
+    )
+
+    check_flow_basis = st.checkbox(
+        "Thermal Required Flow가 Heat Load, Coolant 물성 및 ΔT로 계산됨을 확인했습니다.",
+        key="phase4_check_flow_basis",
+    )
+
+    check_geometry = st.checkbox(
+        "현재 Pipe Diameter / Length 입력조건을 확인했습니다.",
+        key="phase4_check_geometry",
+    )
+
+    check_rack_dp = st.checkbox(
+        "Rack internal ΔP가 현재 PoC placeholder이며 OEM pressure-flow curve로 교체해야 함을 확인했습니다.",
+        key="phase4_check_rack_dp",
+    )
+
+    check_limits = st.checkbox(
+        "Velocity / ΔP / Pump 운전범위의 최종 허용성은 프로젝트별 기준으로 추가 검토해야 함을 확인했습니다.",
+        key="phase4_check_limits",
+    )
+
+    phase4_note = st.text_area(
+        "Engineer calculation review note",
+        key="phase4_note",
+        placeholder=(
+            "예: Project Candidate B는 Baseline 대비 Pump Power 증가. "
+            "OEM Rack pressure-flow curve 확보 후 재검증 필요."
+        ),
+    )
+
+    ready_phase4 = (
+        check_flow_basis
+        and check_geometry
+        and check_rack_dp
+        and check_limits
+    )
+
+    st.download_button(
+        "Download hydraulic CSV",
+        results.to_csv(
+            index=False
+        ).encode(
+            "utf-8-sig"
+        ),
+        "hliquidopt_hydraulics.csv",
+        "text/csv",
+        use_container_width=True,
+    )
+
+    if st.button(
+        "✓ Approve Phase 4 Calculation Review",
+        type="primary",
+        disabled=not ready_phase4,
+        use_container_width=True,
+    ):
+        st.session_state.hydraulic_results = (
+            results.copy()
+        )
+
+        st.session_state.hydraulic_summary = (
+            hydraulic_summary.copy()
+        )
+
+        st.session_state.phase4_delta_t = (
+            phase4_delta_t
+        )
+
+        st.session_state.phase4_geometry = {
+            "common_d": st.session_state.get(
+                "common_d"
+            ),
+            "row_d": st.session_state.get(
+                "row_d"
+            ),
+            "branch_d": st.session_state.get(
+                "branch_d"
+            ),
+            "common_l": st.session_state.get(
+                "common_l"
+            ),
+            "row_l": st.session_state.get(
+                "row_l"
+            ),
+            "branch_l": st.session_state.get(
+                "branch_l"
+            ),
+            "rack_dp_kpa": rack_dp_assumption,
+        }
+
+        st.session_state.approved[4] = True
+
+        st.success(
+            "Phase 4 approved. "
+            "검토된 Hydraulic 결과가 Phase 5로 전달되었습니다."
+        )
+
+    if st.session_state.approved[4]:
+        st.success(
+            "✓ Phase 4 Engineer Review Approved"
+        )
+
+
+elif phase == 5:
+    st.header(
+        "Phase 5 · Integrated Review & Engineer Decision"
+    )
+
+    st.caption(
+        "승인된 TCS / CDU topology와 Phase 4 Hydraulic 결과를 취합하여 "
+        "후속 설계검토에 사용할 preferred engineering case를 결정합니다."
+    )
+
+    # ===================================
+    # PHASE 4 APPROVAL GATE
+    # ===================================
+    if not st.session_state.approved[4]:
+        st.warning(
+            "Phase 4 Engineer Review가 아직 완료되지 않았습니다. "
+            "Hydraulic 계산을 승인한 후 최종 비교를 진행해주세요."
+        )
+        st.stop()
+
+    if "hydraulic_results" not in st.session_state:
+        st.error(
+            "승인된 Hydraulic 결과가 없습니다."
+        )
+        st.stop()
+
+    phase5_results = (
+        st.session_state.hydraulic_results.copy()
+    )
+
+    phase5_racks = (
+        st.session_state.phase1_racks.copy()
+    )
+
+    phase5_cdu_capacity = (
+        st.session_state.get(
+            "phase2_cdu_capacity",
+            cdu_capacity,
+        )
+    )
+
+    phase5_redundancy = (
+        st.session_state.get(
+            "phase2_redundancy",
+            redundancy,
+        )
+    )
+
+    phase5_delta_t = (
+        st.session_state.get(
+            "phase4_delta_t",
+            return_t - supply_t,
+        )
+    )
+
+    # ===================================
+    # 5A · APPROVED DESIGN BASIS
+    # ===================================
+    st.markdown(
+        "### 5A · Approved Design Basis"
+    )
+
+    a1, a2, a3, a4 = st.columns(4)
+
+    a1.metric(
+        "Topology",
+        st.session_state.get(
+            "topology_choice",
+            "Not selected",
+        ),
+    )
+
+    a2.metric(
+        "CDU Capacity",
+        f"{phase5_cdu_capacity:.1f} MW",
+    )
+
+    a3.metric(
+        "Redundancy",
+        phase5_redundancy,
+    )
+
+    a4.metric(
+        "ΔT",
+        f"{phase5_delta_t:.1f} K",
+    )
+
+    # ===================================
+    # 5B · HYDRAULIC CASE COMPARISON
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 5B · Hydraulic Case Comparison"
+    )
+
+    ranking = candidate_score_table(
+        phase5_results,
+        phase5_cdu_capacity,
+    )
+
+    ranking_cols = [
+        "rank",
+        "coolant",
+        "total_pump_kw",
+        "worst_dp_kpa",
+        "cdu_loading_pct",
+        "balanced_score",
+    ]
+
+    ranking_cols = [
+        col
+        for col in ranking_cols
+        if col in ranking.columns
+    ]
+
+    st.dataframe(
+        ranking[ranking_cols],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    if not ranking.empty:
+        first_case = ranking.iloc[0]
+
+        st.info(
+            f"현재 정의된 hydraulic composite score에서 가장 낮은 값은 "
+            f"**{first_case['coolant']}**입니다. "
+            "이는 최종 coolant 추천이 아니라 현재 계산항목과 weighting에 따른 "
+            "비교 결과입니다."
+        )
+
+    st.warning(
+        "Phase 5의 ranking은 OEM approval, 실제 CAPEX, 동결보호, "
+        "water chemistry, 장기 부식/재질 compatibility 등을 모두 포함한 "
+        "최종 최적화 결과가 아닙니다."
+    )
+
+    # ===================================
+    # 5C · ENGINEER DECISION
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 5C · Engineer Decision"
+    )
+
+    available_cases = (
+        phase5_results[
+            "coolant"
+        ]
+        .dropna()
+        .unique()
+        .tolist()
+    )
+
+    preferred_case = st.selectbox(
+        "Preferred hydraulic case for next design iteration",
+        available_cases,
+        key="phase5_preferred_case",
+    )
+
+    st.write(
+        f"**Approved TCS topology:** "
+        f"{st.session_state.get('topology_choice', 'Not selected')}"
+    )
+
+    st.write(
+        f"**Selected hydraulic case:** "
+        f"{preferred_case}"
+    )
+
+    final_note = st.text_area(
+        "Final engineer review note",
+        key="phase5_final_note",
+        placeholder=(
+            "예: Candidate B를 후속 상세검토 대상으로 선정. "
+            "OEM pressure-flow curve, supplier compatibility 및 "
+            "actual routing을 반영해 다음 iteration 수행."
+        ),
+    )
+
+    final_check = st.checkbox(
+        "본 결과가 기본설계 단계의 비교·검토 결과이며 최종 시공/구매 승인안이 아님을 확인했습니다.",
+        key="phase5_final_check",
+    )
+
+    if st.button(
+        "Save Engineer Decision",
+        type="primary",
+        disabled=not final_check,
+        use_container_width=True,
+    ):
+        st.session_state.final_decision = {
+            "topology": st.session_state.get(
+                "topology_choice"
+            ),
+            "hydraulic_case": preferred_case,
+            "engineer_note": final_note,
+        }
+
+        st.success(
+            "Engineer decision saved."
+        )
+
+    # ===================================
+    # 5D · DECISION HISTORY
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 5D · Decision History"
+    )
+
+    phase3_cases_text = ", ".join(
+        st.session_state.get(
+            "phase3_analysis_cases",
+            [],
+        )
+    )
+
+    hist = pd.DataFrame(
+        [
+            [
+                "Phase 1",
+                "Rack / Heat-load Model",
+                "Approved"
+                if st.session_state.approved[1]
+                else "Pending",
+                st.session_state.get(
+                    "phase1_note",
+                    "",
+                ),
+            ],
+            [
+                "Phase 2",
+                st.session_state.get(
+                    "topology_choice",
+                    "Not selected",
+                ),
+                "Approved"
+                if st.session_state.approved[2]
+                else "Pending",
+                st.session_state.get(
+                    "phase2_note",
+                    "",
+                ),
+            ],
+            [
+                "Phase 3",
+                phase3_cases_text,
+                "Approved"
+                if st.session_state.approved[3]
+                else "Pending",
+                st.session_state.get(
+                    "phase3_note",
+                    "",
+                ),
+            ],
+            [
+                "Phase 4",
+                "Deterministic Hydraulic Calculation",
+                "Approved"
+                if st.session_state.approved[4]
+                else "Pending",
+                st.session_state.get(
+                    "phase4_note",
+                    "",
+                ),
+            ],
+        ],
+        columns=[
+            "Phase",
+            "Decision / Result",
+            "Status",
+            "Engineer Note",
+        ],
+    )
+
+    st.dataframe(
+        hist,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # ===================================
+    # 5E · REPORT EXPORT
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 5E · Design Review Export"
+    )
+
+    pods = pod_summary(
+        phase5_racks
+    )
+
+    phase5_names = (
+        phase5_results[
+            "coolant"
+        ]
+        .dropna()
+        .unique()
+        .tolist()
+    )
+
+    report = project_report_markdown(
+        phase5_racks,
+        pods,
+        ranking,
+        phase5_names,
+        phase5_delta_t,
+        phase5_cdu_capacity,
+        phase5_redundancy,
+    )
+
+    d1, d2 = st.columns(2)
+
+    d1.download_button(
+        "Download design-review report (.md)",
+        report.encode(
+            "utf-8-sig"
+        ),
+        "H-LiquidOpt_design_review.md",
+        "text/markdown",
+        use_container_width=True,
+    )
+
+    d2.download_button(
+        "Download approved rack dataset (.csv)",
+        phase5_racks.to_csv(
+            index=False
+        ).encode(
+            "utf-8-sig"
+        ),
+        "H-LiquidOpt_approved_racks.csv",
+        "text/csv",
+        use_container_width=True,
+    )
 
 st.divider()
 st.caption("Prototype only · Not for construction, procurement, safety certification, or final equipment/coolant selection. Project-specific constraints must be verified by qualified engineers and equipment/coolant suppliers.")
