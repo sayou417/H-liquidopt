@@ -5404,6 +5404,44 @@ elif phase == 5:
                 "Preferred Coolant × Pipe scenario saved "
                 "for final cross-check."
             )
+
+    # ===================================
+    # FALLBACK · No pipe sensitivity
+    # ===================================
+    else:
+        st.warning(
+            "Approved Pipe Diameter Sensitivity result가 없습니다. "
+            "Phase 4에서 sensitivity calculation을 승인한 뒤 "
+            "Coolant × Pipe 비교를 진행해주세요."
+        )
+
+        st.markdown(
+            "#### Current Hydraulic Cases"
+        )
+
+        ranking_cols = [
+            "rank",
+            "coolant",
+            "total_pump_kw",
+            "worst_dp_kpa",
+            "cdu_loading_pct",
+            "balanced_score",
+        ]
+
+        ranking_cols = [
+            col
+            for col in ranking_cols
+            if col in ranking.columns
+        ]
+
+        st.dataframe(
+            ranking[
+                ranking_cols
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
     # ===================================
     # 5D · AI FINAL CROSS-CHECK
     # ===================================
@@ -5665,43 +5703,6 @@ elif phase == 5:
                 "최종 적합성 판단은 프로젝트 엔지니어, OEM 및 "
                 "coolant/equipment supplier 검토가 필요합니다."
             )
-    # ===================================
-    # FALLBACK · No pipe sensitivity
-    # ===================================
-    else:
-        st.warning(
-            "Approved Pipe Diameter Sensitivity result가 없습니다. "
-            "Phase 4에서 sensitivity calculation을 승인한 뒤 "
-            "Coolant × Pipe 비교를 진행해주세요."
-        )
-
-        st.markdown(
-            "#### Current Hydraulic Cases"
-        )
-
-        ranking_cols = [
-            "rank",
-            "coolant",
-            "total_pump_kw",
-            "worst_dp_kpa",
-            "cdu_loading_pct",
-            "balanced_score",
-        ]
-
-        ranking_cols = [
-            col
-            for col in ranking_cols
-            if col in ranking.columns
-        ]
-
-        st.dataframe(
-            ranking[
-                ranking_cols
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
-
     # ===================================
     # 5E · DECISION HISTORY
     # ===================================
