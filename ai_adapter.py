@@ -116,7 +116,45 @@ SPEC_SCHEMA = {
         "pressure_drop_kpa": {
             "type": ["number", "null"]
         },
-
+        
+        "rack_flow_pressure_points": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "flow_lpm": {
+                        "type": "number"
+                    },
+                    "pressure_drop_kpa": {
+                        "type": "number"
+                    },
+                    "page": {
+                        "type": [
+                            "integer",
+                            "null",
+                        ]
+                    },
+                    "evidence": {
+                        "type": "string"
+                    },
+                    "condition": {
+                        "type": [
+                            "string",
+                            "null",
+                        ]
+                    },
+                },
+                "required": [
+                    "flow_lpm",
+                    "pressure_drop_kpa",
+                    "page",
+                    "evidence",
+                    "condition",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        
         "notes": {
             "type": "array",
             "items": {
@@ -168,6 +206,7 @@ SPEC_SCHEMA = {
         "supply_temp_max_c",
         "recommended_flow_lpm",
         "pressure_drop_kpa",
+        "rack_flow_pressure_points",
         "notes",
         "sources"
     ],
@@ -330,6 +369,158 @@ IMPORTANT RULES
 
 20. Any ambiguity or limitation that an engineer should review
     should be placed in the notes field.
+
+RACK FLOW-PRESSURE CURVE EXTRACTION
+
+If the source document contains multiple paired operating points
+for rack liquid flow and rack internal pressure drop, extract them
+into rack_flow_pressure_points.
+
+Examples of acceptable source structures:
+- a table containing Flow Rate and Pressure Drop
+- multiple explicitly stated operating points
+- a rack pressure-flow performance table
+
+Rules:
+
+1. Extract only explicitly documented paired values.
+
+2. Do NOT generate additional points by interpolation,
+   extrapolation, regression, or engineering estimation.
+
+3. Do NOT derive a pressure-drop curve yourself.
+   Curve fitting is performed later by the deterministic
+   H-LiquidOpt physics engine.
+
+4. The pressure drop must refer to the rack internal liquid path,
+   cold-plate/rack liquid circuit, or an equivalent clearly
+   documented rack hydraulic boundary.
+
+5. Do NOT mix system pressure drop, CDU pressure drop,
+   pump head, facility piping pressure drop, or unrelated
+   hydraulic boundaries with rack internal pressure drop.
+
+6. When possible, record the page and a short evidence statement
+   for each operating point.
+
+7. If the operating points are associated with a coolant,
+   temperature, or other test condition, preserve that information
+   in the condition field.
+
+8. Do NOT combine points from different equipment models,
+   different coolant formulations, or clearly different test
+   conditions into one curve unless the source explicitly presents
+   them as one dataset.
+
+9. Unit normalization is allowed when the source explicitly
+   provides convertible units.
+
+10. If the document contains only one rack flow-pressure point,
+    include that one point. Do not invent additional points.
+
+11. If no multi-point or single-point rack flow-pressure data
+    is explicitly available, return an empty array.
+
+Possible document types include:
+
+- rack datasheet
+- server datasheet
+- CDU datasheet
+- coolant datasheet
+- equipment specification
+- bill of materials
+- engineering specification
+
+The output will be reviewed by an engineer
+before any value is transferred into the H-LiquidOpt
+deterministic calculation workflow.
+"""
+
+    try:
+        response = client.responses.create(
+            model=DEFAULT_MODEL,
+
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_file",
+                            "filename": filename,
+                            "file_data": (
+                                f"data:application/pdf;base64,{encoded_file}"
+                            ),
+                        },
+                        {
+                            "type": "input_text",
+                            "text": instructions,
+                        },
+                    ],
+                }
+            ],
+
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "hliquidopt_specification",
+                    "strict": True,
+                    "schema": SPEC_SCHEMA,
+                }
+            },
+        )
+
+    except openai.AuthenticationError as exc:
+        raise RuntimeError(
+            "OpenAI authentication failed. "
+            "Check the API key configured in Streamlit Secrets."
+        ) from exc
+
+    except openai.RateLimitError as exc:
+        raise RuntimeError(
+            "The AI service is temporarily rate-limited "
+            "or the API usage quota has been reached. "
+            "Please try again later or check API billing."
+        ) from exc
+
+    except openai.APITimeoutError as exc:
+        raise RuntimeError(
+            "The AI analysis timed out. "
+            "Try again or use a smaller PDF."
+        ) from exc
+
+    except openai.APIConnectionError as exc:
+        raise RuntimeError(
+            "Could not connect to the AI service. "
+            "Please check the connection and try again."
+        ) from exc
+
+    except openai.BadRequestError as exc:
+        raise RuntimeError(
+            "The AI service could not process this PDF. "
+            "The document may be unsupported, malformed, "
+            "or contain content that cannot be processed."
+        ) from exc
+
+    except openai.APIStatusError as exc:
+        raise RuntimeError(
+            f"The AI service returned an unexpected error "
+            f"(HTTP {exc.status_code}). Please try again."
+        ) from exc
+
+    if not response.output_text:
+        raise RuntimeError(
+            "AI returned an empty specification result."
+        )
+
+    try:
+        result = json.loads(
+            response.output_text
+        )
+
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "AI response could not be parsed as structured JSON."
+        ) from exc
 
 Possible document types include:
 
