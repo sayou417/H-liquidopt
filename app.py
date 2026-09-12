@@ -999,6 +999,10 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                         "pressure_drop_kpa": verified.get(
                             "pressure_drop_kpa"
                         ),
+                        "rack_flow_pressure_points": verified.get(
+                            "rack_flow_pressure_points",
+                            [],
+                        ),
                     }
     
                     st.success(
