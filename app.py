@@ -12,6 +12,7 @@ from engine import (
     heat_loads,
     pod_summary,
     evaluate_coolants,
+    fit_rack_dp_curve,
     candidate_score_table,
     validate_racks,
     recommended_duty_cdus,
@@ -4476,25 +4477,151 @@ elif phase == 4:
             "Phase 3에서 승인된 각 coolant case를 계산합니다."
         )
 
-    results = evaluate_coolants(
-        phase4_racks,
-        coolants,
-        phase4_delta_t,
-        geom,
+    # ===================================
+    # OEM RACK Q–ΔP CURVE
+    # ===================================
+    oem_reference = st.session_state.get(
+        "phase4_oem_reference"
     )
+
+    rack_dp_curve = None
+
+    if oem_reference:
+        verified_curve_points = (
+            oem_reference.get(
+                "rack_flow_pressure_points",
+                [],
+            )
+        )
+
+        if len(verified_curve_points) >= 2:
+            try:
+                curve_input = [
+                    (
+                        float(
+                            point["flow_lpm"]
+                        ),
+                        float(
+                            point[
+                                "pressure_drop_kpa"
+                            ]
+                        ),
+                    )
+                    for point in verified_curve_points
+                    if (
+                        point.get("flow_lpm")
+                        is not None
+                        and point.get(
+                            "pressure_drop_kpa"
+                        )
+                        is not None
+                    )
+                ]
+
+                if len(curve_input) >= 2:
+                    rack_dp_curve = (
+                        fit_rack_dp_curve(
+                            curve_input
+                        )
+                    )
+
+                    st.markdown(
+                        "#### OEM Rack Q–ΔP Curve"
+                    )
+
+                    st.success(
+                        "✓ Engineer-verified OEM rack "
+                        "pressure-flow curve is active."
+                    )
+
+                    curve_col1, curve_col2, curve_col3 = (
+                        st.columns(3)
+                    )
+
+                    curve_col1.metric(
+                        "Verified Points",
+                        rack_dp_curve.point_count,
+                    )
+
+                    curve_col2.metric(
+                        "Verified Flow Range",
+                        (
+                            f"{rack_dp_curve.q_min_lpm:.1f}"
+                            f"–"
+                            f"{rack_dp_curve.q_max_lpm:.1f} L/min"
+                        ),
+                    )
+
+                    curve_col3.metric(
+                        "Rack ΔP Model",
+                        "aQ² + bQ",
+                    )
+
+                    st.caption(
+                        "Rack internal pressure drop is now "
+                        "calculated dynamically from the "
+                        "engineer-verified OEM operating points. "
+                        "Extrapolation outside the verified flow "
+                        "range is not permitted."
+                    )
+
+            except (
+                ValueError,
+                TypeError,
+                KeyError,
+            ) as e:
+                st.error(
+                    "OEM rack pressure-flow curve fitting failed: "
+                    f"{e}"
+                )
+                st.stop()
+
+        elif len(verified_curve_points) == 1:
+            st.warning(
+                "Only one engineer-verified rack flow-pressure "
+                "point is available. OEM curve fitting requires "
+                "at least two points, so the existing hydraulic "
+                "fallback method will be used."
+            )
+
+    # ===================================
+    # DETERMINISTIC HYDRAULIC CALCULATION
+    # ===================================
+    try:
+        results = evaluate_coolants(
+            phase4_racks,
+            coolants,
+            phase4_delta_t,
+            geom,
+            rack_dp_curve=rack_dp_curve,
+        )
+
+    except ValueError as e:
+        st.error(
+            "Hydraulic calculation could not be completed: "
+            f"{e}"
+        )
+
+        if rack_dp_curve is not None:
+            st.info(
+                "The calculated rack flow may be outside the "
+                "engineer-verified OEM Q–ΔP curve range. "
+                "H-LiquidOpt does not extrapolate the OEM curve "
+                "automatically. Review the design condition or "
+                "provide additional OEM operating points."
+            )
+
+        st.stop()
 
     if results.empty:
         st.error(
             "Hydraulic calculation result가 생성되지 않았습니다."
         )
         st.stop()
+
     # ===================================
     # OEM FLOW REFERENCE COMPARISON
     # ===================================
-    oem_reference = st.session_state.get(
-        "phase4_oem_reference"
-    )
-
     if (
         oem_reference
         and oem_reference.get(
@@ -4566,6 +4693,7 @@ elif phase == 4:
         "branch_velocity_m_s",
         "network_dp_kpa",
         "rack_dp_kpa",
+        "rack_dp_basis",
         "total_dp_kpa",
         "pump_kw",
     ]
@@ -4581,12 +4709,21 @@ elif phase == 4:
         use_container_width=True,
         hide_index=True,
     )
+    if rack_dp_curve is not None:
+        st.caption(
+            "※ Flow는 Q = ṁCpΔT로부터 계산된 Thermal Required Flow입니다. "
+            "Rack ΔP는 engineer-verified OEM Q–ΔP operating points에 "
+            "적합된 ΔP = aQ² + bQ 모델을 사용하여 현재 설계유량에서 "
+            "동적으로 계산됩니다."
+        )
 
-    st.caption(
-        "※ Flow는 Q = ṁCpΔT로부터 계산된 Thermal Required Flow입니다. "
-        "현재 Rack ΔP는 synthetic placeholder이며, 최종 설계값이 아닙니다."
-    )
-
+    else:
+        st.caption(
+            "※ Flow는 Q = ṁCpΔT로부터 계산된 Thermal Required Flow입니다. "
+            "검증된 OEM 다중 운전점이 없어 Rack ΔP에는 기존 "
+            "synthetic fallback model이 사용됩니다. "
+            "최종 설계 시 OEM pressure-flow curve 검증이 필요합니다."
+        )
     # ===================================
     # 4D · COOLANT HYDRAULIC COMPARISON
     # ===================================
