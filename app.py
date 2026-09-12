@@ -333,7 +333,59 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                 use_container_width=True,
                 hide_index=True,
             )
-    
+    # =========================================
+    # Rack Flow-Pressure Operating Points
+    # =========================================
+    rack_flow_pressure_points = result.get(
+        "rack_flow_pressure_points",
+        [],
+    )
+
+    if rack_flow_pressure_points:
+        st.markdown(
+            "#### Rack Flow–Pressure Operating Points"
+        )
+
+        curve_df = pd.DataFrame(
+            rack_flow_pressure_points
+        )
+
+        curve_df = curve_df.rename(
+            columns={
+                "flow_lpm": "Flow (L/min)",
+                "pressure_drop_kpa": "Rack ΔP (kPa)",
+                "page": "Page",
+                "evidence": "Evidence",
+                "condition": "Condition",
+            }
+        )
+
+        st.dataframe(
+            curve_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        if len(curve_df) >= 2:
+            st.success(
+                f"✓ {len(curve_df)} source-supported "
+                "rack flow-pressure operating points were extracted. "
+                "Engineer verification is required before curve fitting."
+            )
+
+        else:
+            st.warning(
+                "Only one rack flow-pressure operating point "
+                "was found. At least two verified points are "
+                "required for curve fitting."
+            )
+
+    else:
+        st.info(
+            "No explicit rack flow-pressure operating-point "
+            "dataset was found in this document."
+        )
+        
         notes = result.get(
             "notes",
             [],
