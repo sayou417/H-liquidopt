@@ -719,6 +719,153 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                 "No explicit rack flow-pressure operating-point "
                 "dataset was found in this document."
             )
+        # =========================================
+        # Engineer Verification · Rack Q–ΔP Curve
+        # =========================================
+        verified_rack_curve_points = []
+
+        if rack_flow_pressure_points:
+            st.markdown(
+                "#### Engineer Verification · Rack Q–ΔP Curve"
+            )
+
+            st.caption(
+                "Review or correct the AI-extracted operating points "
+                "before allowing them to enter the deterministic "
+                "hydraulic calculation."
+            )
+
+            rack_curve_editor_df = pd.DataFrame(
+                rack_flow_pressure_points
+            )
+
+            edited_rack_curve_df = st.data_editor(
+                rack_curve_editor_df,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="dynamic",
+                key="ai_rack_curve_editor",
+                column_config={
+                    "flow_lpm": st.column_config.NumberColumn(
+                        "Flow (L/min)",
+                        min_value=0.0,
+                        format="%.1f",
+                    ),
+                    "pressure_drop_kpa": st.column_config.NumberColumn(
+                        "Rack ΔP (kPa)",
+                        min_value=0.0,
+                        format="%.2f",
+                    ),
+                    "page": st.column_config.NumberColumn(
+                        "Source Page",
+                        min_value=1,
+                        step=1,
+                    ),
+                    "evidence": st.column_config.TextColumn(
+                        "Evidence"
+                    ),
+                    "condition": st.column_config.TextColumn(
+                        "Condition"
+                    ),
+                },
+            )
+
+            curve_verified = st.checkbox(
+                "I verified these rack flow–pressure operating points "
+                "against the source document.",
+                key="ai_verify_rack_dp_curve",
+            )
+
+            clean_curve_df = (
+                edited_rack_curve_df.copy()
+            )
+
+            clean_curve_df[
+                "flow_lpm"
+            ] = pd.to_numeric(
+                clean_curve_df["flow_lpm"],
+                errors="coerce",
+            )
+
+            clean_curve_df[
+                "pressure_drop_kpa"
+            ] = pd.to_numeric(
+                clean_curve_df["pressure_drop_kpa"],
+                errors="coerce",
+            )
+
+            clean_curve_df = clean_curve_df.dropna(
+                subset=[
+                    "flow_lpm",
+                    "pressure_drop_kpa",
+                ]
+            )
+
+            curve_validation_errors = []
+
+            if len(clean_curve_df) < 2:
+                curve_validation_errors.append(
+                    "At least two valid operating points are "
+                    "required for rack Q–ΔP curve fitting."
+                )
+
+            if (
+                clean_curve_df["flow_lpm"] <= 0
+            ).any():
+                curve_validation_errors.append(
+                    "Flow values must be greater than 0 L/min."
+                )
+
+            if (
+                clean_curve_df[
+                    "pressure_drop_kpa"
+                ] <= 0
+            ).any():
+                curve_validation_errors.append(
+                    "Pressure-drop values must be greater than 0 kPa."
+                )
+
+            if clean_curve_df[
+                "flow_lpm"
+            ].duplicated().any():
+                curve_validation_errors.append(
+                    "Duplicate flow values are not allowed."
+                )
+
+            clean_curve_df = clean_curve_df.sort_values(
+                "flow_lpm"
+            )
+
+            if curve_validation_errors:
+                for error_message in curve_validation_errors:
+                    st.warning(
+                        error_message
+                    )
+
+            elif curve_verified:
+                verified_rack_curve_points = (
+                    clean_curve_df.where(
+                        pd.notnull(
+                            clean_curve_df
+                        ),
+                        None,
+                    )
+                    .to_dict(
+                        orient="records"
+                    )
+                )
+
+                st.success(
+                    f"✓ {len(verified_rack_curve_points)} "
+                    "rack flow-pressure points verified."
+                )
+
+            else:
+                st.info(
+                    "The extracted curve has not yet been "
+                    "engineer-verified. It will not be used "
+                    "by the physics engine."
+                )
         if st.button(
             "✓ Save Engineer-Verified Specification",
             type="primary",
