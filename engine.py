@@ -34,6 +34,184 @@ class HydraulicGeometry:
     motor_efficiency: float = 0.92
     rack_dp_reference_kpa: float = 120.0
 
+@dataclass
+class RackPressureCurve:
+    """
+    OEM rack pressure-flow curve.
+
+    Model:
+        deltaP_kPa = a * Q_lpm^2 + b * Q_lpm
+
+    The curve is fitted only from engineer-verified
+    OEM operating points.
+    """
+
+    a: float
+    b: float
+    q_min_lpm: float
+    q_max_lpm: float
+    point_count: int
+
+
+def fit_rack_dp_curve(
+    points: list[tuple[float, float]],
+) -> RackPressureCurve:
+    """
+    Fit an OEM rack pressure-flow curve:
+
+        deltaP = a*Q^2 + b*Q
+
+    At least two verified operating points are required.
+    The model is constrained to pass through the origin,
+    which is physically appropriate for zero-flow loss.
+    """
+
+    if len(points) < 2:
+        raise ValueError(
+            "At least two rack flow / pressure-drop points "
+            "are required for curve fitting."
+        )
+
+    cleaned = []
+
+    for flow_lpm, dp_kpa in points:
+        flow = float(flow_lpm)
+        dp = float(dp_kpa)
+
+        if flow <= 0:
+            raise ValueError(
+                "Rack flow points must be greater than 0 L/min."
+            )
+
+        if dp <= 0:
+            raise ValueError(
+                "Rack pressure-drop points must be greater than 0 kPa."
+            )
+
+        cleaned.append(
+            (flow, dp)
+        )
+
+    # Prevent duplicate flow points
+    flows = [
+        item[0]
+        for item in cleaned
+    ]
+
+    if len(set(flows)) != len(flows):
+        raise ValueError(
+            "Duplicate rack flow points are not allowed."
+        )
+
+    q = np.array(
+        flows,
+        dtype=float,
+    )
+
+    dp = np.array(
+        [
+            item[1]
+            for item in cleaned
+        ],
+        dtype=float,
+    )
+
+    # deltaP = a*Q^2 + b*Q
+    x = np.column_stack(
+        [
+            q**2,
+            q,
+        ]
+    )
+
+    coefficients, _, _, _ = np.linalg.lstsq(
+        x,
+        dp,
+        rcond=None,
+    )
+
+    a = float(
+        coefficients[0]
+    )
+
+    b = float(
+        coefficients[1]
+    )
+
+    q_min = float(
+        q.min()
+    )
+
+    q_max = float(
+        q.max()
+    )
+
+    # Check that the fitted relationship remains
+    # physically increasing throughout the
+    # verified OEM data range.
+    derivative_min = min(
+        2.0 * a * q_min + b,
+        2.0 * a * q_max + b,
+    )
+
+    if derivative_min <= 0:
+        raise ValueError(
+            "The fitted rack pressure-flow curve is not "
+            "monotonically increasing over the OEM data range. "
+            "Review the source operating points."
+        )
+
+    return RackPressureCurve(
+        a=a,
+        b=b,
+        q_min_lpm=q_min,
+        q_max_lpm=q_max,
+        point_count=len(cleaned),
+    )
+
+
+def rack_dp_from_curve(
+    flow_lpm: float,
+    curve: RackPressureCurve,
+    allow_extrapolation: bool = False,
+) -> float:
+    """
+    Calculate rack pressure drop from an OEM-fitted curve.
+
+    By default, extrapolation outside the verified OEM
+    flow range is blocked.
+    """
+
+    flow = float(
+        flow_lpm
+    )
+
+    if flow <= 0:
+        return 0.0
+
+    if not allow_extrapolation:
+        if (
+            flow < curve.q_min_lpm
+            or flow > curve.q_max_lpm
+        ):
+            raise ValueError(
+                f"Calculated rack flow {flow:.1f} L/min is outside "
+                f"the verified OEM curve range "
+                f"{curve.q_min_lpm:.1f}–{curve.q_max_lpm:.1f} L/min."
+            )
+
+    dp = (
+        curve.a * flow**2
+        + curve.b * flow
+    )
+
+    if dp < 0:
+        raise ValueError(
+            "Calculated rack pressure drop became negative. "
+            "Review the OEM pressure-flow curve."
+        )
+
+    return float(dp)
 
 def validate_racks(racks: pd.DataFrame) -> list[str]:
     """Return human-readable validation errors. Empty list means usable input."""
@@ -160,6 +338,7 @@ def hydraulic_candidate(
     max_liquid_per_row: int | None = None,
     water_ref_rack_flow_lpm: float | None = None,
     water_ref_rho: float = 992.2,
+    rack_dp_curve: RackPressureCurve | None = None,
 ) -> dict:
     if liquid_racks < 0:
         raise ValueError("liquid_racks cannot be negative")
@@ -188,12 +367,52 @@ def hydraulic_candidate(
     )
     network_dp = dp_common + dp_row + dp_branch + dp_minor
 
+    # =========================================
+    # Rack internal pressure drop
+    # =========================================
     if liquid_racks == 0:
         rack_dp = 0.0
-    elif water_ref_rack_flow_lpm is None or water_ref_rack_flow_lpm <= 0:
-        rack_dp = geom.rack_dp_reference_kpa
+        rack_dp_basis = "No liquid flow"
+
+    elif rack_dp_curve is not None:
+        rack_dp = rack_dp_from_curve(
+            rack_flow,
+            rack_dp_curve,
+            allow_extrapolation=False,
+        )
+
+        rack_dp_basis = (
+            "OEM multi-point pressure-flow curve"
+        )
+
+    elif (
+        water_ref_rack_flow_lpm is None
+        or water_ref_rack_flow_lpm <= 0
+    ):
+        rack_dp = (
+            geom.rack_dp_reference_kpa
+        )
+
+        rack_dp_basis = (
+            "Synthetic fixed placeholder"
+        )
+
     else:
-        rack_dp = geom.rack_dp_reference_kpa * (coolant.rho_kg_m3 / water_ref_rho) * (rack_flow / water_ref_rack_flow_lpm) ** 2
+        rack_dp = (
+            geom.rack_dp_reference_kpa
+            * (
+                coolant.rho_kg_m3
+                / water_ref_rho
+            )
+            * (
+                rack_flow
+                / water_ref_rack_flow_lpm
+            ) ** 2
+        )
+
+        rack_dp_basis = (
+            "Synthetic single-point square-law scaling"
+        )
 
     total_dp = network_dp + rack_dp
     eta = max(geom.pump_efficiency * geom.motor_efficiency, 1e-6)
@@ -208,6 +427,7 @@ def hydraulic_candidate(
         "branch_velocity_m_s": _velocity(rack_flow, geom.branch_diameter_m) if rack_flow > 0 else 0.0,
         "network_dp_kpa": network_dp,
         "rack_dp_kpa": rack_dp,
+        "rack_dp_basis": rack_dp_basis,
         "total_dp_kpa": total_dp,
         "pump_kw": pump_kw,
     }
@@ -218,6 +438,7 @@ def evaluate_coolants(
     coolants: list[Coolant],
     delta_t_k: float,
     geom: HydraulicGeometry,
+    rack_dp_curve: RackPressureCurve | None = None,
 ) -> pd.DataFrame:
     pods = pod_summary(racks)
     water_ref = Coolant("Water reference", 992.2, 4.179, 0.000653)
@@ -240,6 +461,7 @@ def evaluate_coolants(
                 max_liquid_per_row=max_per_row,
                 water_ref_rack_flow_lpm=water_ref_flow,
                 water_ref_rho=water_ref.rho_kg_m3,
+                rack_dp_curve=rack_dp_curve,
             )
             records.append({
                 "coolant": fluid.name,
