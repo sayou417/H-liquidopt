@@ -247,14 +247,27 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                             file_bytes=uploaded_spec.getvalue(),
                             filename=uploaded_spec.name,
                             api_key=api_key,
-                    )
+                        )
                     # Clear previous engineer-edit widget states
                     for key in list(st.session_state.keys()):
                         if key.startswith("ai_edit_") or key.startswith("ai_verify_"):
                             st.session_state.pop(key, None)
 
-                    st.session_state.pop("ai_verified_spec", None)                    
-                    st.session_state["ai_spec_result"] = result
+                    # Clear previous rack Q–ΔP editor state
+                    st.session_state.pop(
+                        "ai_rack_curve_editor",
+                        None,
+                    )
+
+                    # Clear previous engineer-verified snapshot
+                    st.session_state.pop(
+                        "ai_verified_spec",
+                        None,
+                    )
+
+                    st.session_state[
+                        "ai_spec_result"
+                    ] = result
 
                     st.success(
                         "Specification extraction completed. "
@@ -653,7 +666,58 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
             and verify_coolant
             and verify_hydraulic
         )
+        # =========================================
+        # Rack Flow-Pressure Operating Points
+        # =========================================
+        rack_flow_pressure_points = result.get(
+            "rack_flow_pressure_points",
+            [],
+        )
     
+        if rack_flow_pressure_points:
+            st.markdown(
+                "#### Rack Flow–Pressure Operating Points"
+            )
+    
+            curve_df = pd.DataFrame(
+                rack_flow_pressure_points
+            )
+    
+            curve_df = curve_df.rename(
+                columns={
+                    "flow_lpm": "Flow (L/min)",
+                    "pressure_drop_kpa": "Rack ΔP (kPa)",
+                    "page": "Page",
+                    "evidence": "Evidence",
+                    "condition": "Condition",
+                }
+            )
+    
+            st.dataframe(
+                curve_df,
+                use_container_width=True,
+                hide_index=True,
+            )
+    
+            if len(curve_df) >= 2:
+                st.success(
+                    f"✓ {len(curve_df)} source-supported "
+                    "rack flow-pressure operating points were extracted. "
+                    "Engineer verification is required before curve fitting."
+                )
+    
+            else:
+                st.warning(
+                    "Only one rack flow-pressure operating point "
+                    "was found. At least two verified points are "
+                    "required for curve fitting."
+                )
+    
+        else:
+            st.info(
+                "No explicit rack flow-pressure operating-point "
+                "dataset was found in this document."
+            )
         if st.button(
             "✓ Save Engineer-Verified Specification",
             type="primary",
@@ -780,6 +844,7 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                     "supply_temp_max_c": verified_supply_max,
                     "recommended_flow_lpm": verified_flow,
                     "pressure_drop_kpa": verified_dp,
+                    "rack_flow_pressure_points": verified_rack_curve_points,
                     "sources": result.get(
                         "sources",
                         [],
