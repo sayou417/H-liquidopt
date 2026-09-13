@@ -4742,6 +4742,17 @@ elif phase == 4:
                     "Project Candidate",
                 )
             )
+            if candidate_data.get(
+                    "property_interpolation_active",
+                    False,
+                ):
+                    st.info(
+                        "B · Project Candidate uses "
+                        "temperature-corrected coolant properties · "
+                        f"T_bulk = "
+                        f"{candidate_data.get('bulk_temp_c', 0.0):.1f}°C · "
+                        f"{candidate_data.get('property_interpolation_basis', '')}"
+                    )
         else:
             st.warning(
                 "B Project Candidate가 선택되었지만 "
