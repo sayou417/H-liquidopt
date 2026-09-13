@@ -260,6 +260,11 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                         None,
                     )
 
+                    st.session_state.pop(
+                        "ai_coolant_property_editor",
+                        None,
+                    )
+                    
                     # Clear previous engineer-verified snapshot
                     st.session_state.pop(
                         "ai_verified_spec",
