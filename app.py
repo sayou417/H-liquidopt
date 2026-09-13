@@ -5102,6 +5102,7 @@ elif phase == 4:
             coolants,
             phase4_delta_t,
             sensitivity_geom,
+            rack_dp_curve=rack_dp_curve,
         )
 
         if sensitivity_result.empty:
