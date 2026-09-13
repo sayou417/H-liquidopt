@@ -157,6 +157,8 @@ PERSISTENT_PROJECT_KEYS = [
     "row_l",
     "branch_l",
     "rack_dp",
+    "loop_type",
+    "balancing_margin_kpa",
 ]
 
 for key in PERSISTENT_PROJECT_KEYS:
