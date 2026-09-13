@@ -566,14 +566,21 @@ def build_cfd_boundary_conditions(
     coolant: Coolant,
     supply_temp_c: float,
     return_temp_c: float,
+    rack_pitch_m: float | None = None,
+    row_pitch_m: float | None = None,
+    origin_x_m: float = 0.0,
+    origin_y_m: float = 0.0,
 ) -> pd.DataFrame:
     """
     Build rack-level boundary-condition data for
     downstream CFD / thermal analysis handoff.
 
+    Optional x/y coordinates are generated only when
+    rack_pitch_m and row_pitch_m are both supplied.
+
+    The generated coordinates are preliminary layout
+    coordinates derived from rack row/column indices.
     This function does not perform CFD.
-    It only structures deterministic design outputs
-    into rack-level boundary conditions.
     """
 
     supply_temp = float(
@@ -599,6 +606,9 @@ def build_cfd_boundary_conditions(
         racks
     ).copy()
 
+    # =========================================
+    # Rack-level thermal / liquid boundaries
+    # =========================================
     rack_data[
         "required_liquid_flow_lpm"
     ] = rack_data[
@@ -648,6 +658,132 @@ def build_cfd_boundary_conditions(
         * 1000.0
     )
 
+    # =========================================
+    # Optional layout coordinate generation
+    # =========================================
+    coordinate_columns = []
+
+    pitch_requested = (
+        rack_pitch_m is not None
+        or row_pitch_m is not None
+    )
+
+    if pitch_requested:
+        if (
+            rack_pitch_m is None
+            or row_pitch_m is None
+        ):
+            raise ValueError(
+                "Both rack_pitch_m and row_pitch_m "
+                "must be supplied to generate x/y coordinates."
+            )
+
+        rack_pitch = float(
+            rack_pitch_m
+        )
+
+        row_pitch = float(
+            row_pitch_m
+        )
+
+        if rack_pitch <= 0:
+            raise ValueError(
+                "Rack pitch must be greater than 0 m."
+            )
+
+        if row_pitch <= 0:
+            raise ValueError(
+                "Row pitch must be greater than 0 m."
+            )
+
+        if (
+            "row" not in rack_data.columns
+            or "col" not in rack_data.columns
+        ):
+            raise ValueError(
+                "Rack row/col data are required "
+                "to generate x/y coordinates."
+            )
+
+        def axis_sort_key(
+            value,
+        ):
+            try:
+                return (
+                    0,
+                    float(value),
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                return (
+                    1,
+                    str(value),
+                )
+
+        unique_rows = sorted(
+            rack_data[
+                "row"
+            ].drop_duplicates().tolist(),
+            key=axis_sort_key,
+        )
+
+        unique_cols = sorted(
+            rack_data[
+                "col"
+            ].drop_duplicates().tolist(),
+            key=axis_sort_key,
+        )
+
+        row_index_map = {
+            value: index
+            for index, value
+            in enumerate(
+                unique_rows
+            )
+        }
+
+        col_index_map = {
+            value: index
+            for index, value
+            in enumerate(
+                unique_cols
+            )
+        }
+
+        rack_data[
+            "x_m"
+        ] = rack_data[
+            "col"
+        ].map(
+            col_index_map
+        ).astype(
+            float
+        ) * rack_pitch + float(
+            origin_x_m
+        )
+
+        rack_data[
+            "y_m"
+        ] = rack_data[
+            "row"
+        ].map(
+            row_index_map
+        ).astype(
+            float
+        ) * row_pitch + float(
+            origin_y_m
+        )
+
+        coordinate_columns = [
+            "x_m",
+            "y_m",
+        ]
+
+    # =========================================
+    # Export schema
+    # =========================================
     output_columns = [
         "rack_id",
         "pod",
@@ -662,6 +798,10 @@ def build_cfd_boundary_conditions(
         output_columns.append(
             "col"
         )
+
+    output_columns.extend(
+        coordinate_columns
+    )
 
     output_columns.extend(
         [
