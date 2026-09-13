@@ -2039,13 +2039,13 @@ geom = HydraulicGeometry(
     rack_dp_reference_kpa=rack_dp,
 
     loop_type=st.session_state.get(
-        "loop_type",
+        "_phase4_loop_type",
         "Direct Return",
     ),
 
     balancing_margin_kpa=float(
         st.session_state.get(
-            "balancing_margin_kpa",
+            "_phase4_balancing_margin_kpa",
             15.0,
         )
     ),
@@ -5621,13 +5621,13 @@ elif phase == 4:
             rack_dp_reference_kpa=rack_dp,
 
             loop_type=st.session_state.get(
-                "loop_type",
+                "_phase4_loop_type",
                 "Direct Return",
             ),
 
             balancing_margin_kpa=float(
                 st.session_state.get(
-                    "balancing_margin_kpa",
+                    "_phase4_balancing_margin_kpa",
                     15.0,
                 )
             ),
