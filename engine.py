@@ -213,6 +213,306 @@ def rack_dp_from_curve(
 
     return float(dp)
 
+def rack_dp_from_curve(
+    ...
+):
+    ...
+    return float(dp)
+
+# =========================================================
+# Coolant Temperature / Property Helpers
+# =========================================================
+def bulk_temperature_c(
+    supply_temp_c: float,
+    return_temp_c: float,
+) -> float:
+    """
+    Calculate the mean bulk coolant temperature
+    for preliminary temperature-dependent property evaluation.
+
+    T_bulk = (T_supply + T_return) / 2
+    """
+
+    supply = float(
+        supply_temp_c
+    )
+
+    return_temp = float(
+        return_temp_c
+    )
+
+    if return_temp <= supply:
+        raise ValueError(
+            "Return temperature must be greater than "
+            "supply temperature."
+        )
+
+    return (
+        supply
+        + return_temp
+    ) / 2.0
+
+def interpolate_coolant_properties(
+    property_points: list[dict],
+    target_temp_c: float,
+) -> dict:
+    """
+    Interpolate coolant properties at a target bulk temperature.
+
+    Expected point format:
+    {
+        "temperature_c": 30.0,
+        "density_kg_m3": 1025.0,
+        "cp_kj_kgk": 3.88,
+        "viscosity_mpas": 1.45,
+    }
+
+    Interpolation:
+    - Density: linear
+    - Specific heat: linear
+    - Dynamic viscosity: logarithmic
+
+    Extrapolation outside the verified temperature
+    range is not permitted.
+    """
+
+    if len(property_points) < 2:
+        raise ValueError(
+            "At least two coolant property-temperature points "
+            "are required for interpolation."
+        )
+
+    cleaned_points = []
+
+    for point in property_points:
+        temp = point.get(
+            "temperature_c"
+        )
+
+        rho = point.get(
+            "density_kg_m3"
+        )
+
+        cp = point.get(
+            "cp_kj_kgk"
+        )
+
+        mu = point.get(
+            "viscosity_mpas"
+        )
+
+        if (
+            temp is None
+            or rho is None
+            or cp is None
+            or mu is None
+        ):
+            continue
+
+        temp = float(temp)
+        rho = float(rho)
+        cp = float(cp)
+        mu = float(mu)
+
+        if rho <= 0:
+            raise ValueError(
+                "Coolant density must be greater than 0."
+            )
+
+        if cp <= 0:
+            raise ValueError(
+                "Coolant specific heat must be greater than 0."
+            )
+
+        if mu <= 0:
+            raise ValueError(
+                "Coolant viscosity must be greater than 0."
+            )
+
+        cleaned_points.append(
+            {
+                "temperature_c": temp,
+                "density_kg_m3": rho,
+                "cp_kj_kgk": cp,
+                "viscosity_mpas": mu,
+            }
+        )
+
+    if len(cleaned_points) < 2:
+        raise ValueError(
+            "At least two complete coolant property points "
+            "are required for interpolation."
+        )
+
+    cleaned_points = sorted(
+        cleaned_points,
+        key=lambda x: x[
+            "temperature_c"
+        ],
+    )
+
+    temperatures = [
+        point["temperature_c"]
+        for point in cleaned_points
+    ]
+
+    if (
+        len(set(temperatures))
+        != len(temperatures)
+    ):
+        raise ValueError(
+            "Duplicate coolant property temperatures "
+            "are not allowed."
+        )
+
+    target = float(
+        target_temp_c
+    )
+
+    temp_min = temperatures[0]
+    temp_max = temperatures[-1]
+
+    if (
+        target < temp_min
+        or target > temp_max
+    ):
+        raise ValueError(
+            f"Bulk temperature {target:.1f}°C is outside "
+            f"the verified coolant property range "
+            f"{temp_min:.1f}–{temp_max:.1f}°C."
+        )
+
+    # Exact verified table point
+    for point in cleaned_points:
+        if math.isclose(
+            target,
+            point["temperature_c"],
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ):
+            return {
+                "temperature_c": target,
+                "density_kg_m3": point[
+                    "density_kg_m3"
+                ],
+                "cp_kj_kgk": point[
+                    "cp_kj_kgk"
+                ],
+                "viscosity_mpas": point[
+                    "viscosity_mpas"
+                ],
+                "interpolation_basis": (
+                    "Exact verified property-table point"
+                ),
+            }
+
+    lower = None
+    upper = None
+
+    # Locate the two verified temperatures
+    # surrounding T_bulk.
+    for index in range(
+        len(cleaned_points) - 1
+    ):
+        point_1 = cleaned_points[
+            index
+        ]
+
+        point_2 = cleaned_points[
+            index + 1
+        ]
+
+        if (
+            point_1["temperature_c"]
+            <= target
+            <= point_2["temperature_c"]
+        ):
+            lower = point_1
+            upper = point_2
+            break
+
+    if (
+        lower is None
+        or upper is None
+    ):
+        raise ValueError(
+            "Could not locate interpolation interval "
+            "for coolant properties."
+        )
+
+    t1 = lower[
+        "temperature_c"
+    ]
+
+    t2 = upper[
+        "temperature_c"
+    ]
+
+    fraction = (
+        target - t1
+    ) / (
+        t2 - t1
+    )
+
+    # Linear interpolation: density
+    rho = (
+        lower["density_kg_m3"]
+        + fraction
+        * (
+            upper["density_kg_m3"]
+            - lower["density_kg_m3"]
+        )
+    )
+
+    # Linear interpolation: specific heat
+    cp = (
+        lower["cp_kj_kgk"]
+        + fraction
+        * (
+            upper["cp_kj_kgk"]
+            - lower["cp_kj_kgk"]
+        )
+    )
+
+    # Logarithmic interpolation: dynamic viscosity
+    log_mu_1 = math.log(
+        lower["viscosity_mpas"]
+    )
+
+    log_mu_2 = math.log(
+        upper["viscosity_mpas"]
+    )
+
+    viscosity_mpas = math.exp(
+        log_mu_1
+        + fraction
+        * (
+            log_mu_2
+            - log_mu_1
+        )
+    )
+
+    return {
+        "temperature_c": target,
+        "density_kg_m3": float(
+            rho
+        ),
+        "cp_kj_kgk": float(
+            cp
+        ),
+        "viscosity_mpas": float(
+            viscosity_mpas
+        ),
+        "interpolation_basis": (
+            f"Interpolated between "
+            f"{t1:.1f}°C and {t2:.1f}°C"
+        ),
+    }
+
+def validate_racks(
+    racks: pd.DataFrame,
+    ...
+):
 def validate_racks(racks: pd.DataFrame) -> list[str]:
     """Return human-readable validation errors. Empty list means usable input."""
     errors: list[str] = []
