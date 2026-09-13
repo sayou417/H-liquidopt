@@ -4504,21 +4504,64 @@ elif phase == 3:
         ):
             st.session_state.phase3_supplier_coolant = {
                 "name": candidate_name.strip(),
+
+                # Properties actually used by Phase 4
                 "rho_kg_m3": float(
+                    effective_candidate_rho
+                ),
+
+                "cp_kj_kgk": float(
+                    effective_candidate_cp
+                ),
+
+                "mu_pa_s": float(
+                    effective_candidate_mu_pa_s
+                ),
+
+                "property_temp_c": float(
+                    effective_property_temp_c
+                ),
+
+                # Preserve the original supplier reference values
+                "source_rho_kg_m3": float(
                     candidate_rho
                 ),
-                "cp_kj_kgk": float(
+
+                "source_cp_kj_kgk": float(
                     candidate_cp
                 ),
-                "mu_pa_s": float(
+
+                "source_mu_pa_s": float(
                     candidate_mu_pa_s
                 ),
-                "property_temp_c": float(
+
+                "source_property_temp_c": float(
                     candidate_temp
                 ),
+
+                # Preserve verified temperature-property table
+                "coolant_property_points": (
+                    list(
+                        phase3_property_points
+                    )
+                ),
+
+                # Traceability of temperature correction
+                "property_interpolation_active": bool(
+                    property_interpolation_active
+                ),
+
+                "property_interpolation_basis": (
+                    property_interpolation_basis
+                ),
+
+                "bulk_temp_c": float(
+                    effective_property_temp_c
+                ),
+
                 "source": candidate_source.strip(),
             }
-
+        
         st.session_state.phase3_approved_analysis_cases = (
             list(selected_analysis_cases)
         )
