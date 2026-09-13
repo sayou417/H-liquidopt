@@ -3633,6 +3633,13 @@ elif phase == 3:
             ai_import.get("source") or ""
         )
 
+        st.session_state[
+            "phase3_supplier_property_points"
+        ] = ai_import.get(
+            "coolant_property_points",
+            [],
+        )
+        
         st.session_state["phase3_ai_imported"] = True
 
     st.caption(
@@ -3648,6 +3655,37 @@ elif phase == 3:
             "Review or edit the values below before Phase 3 approval."
         )
 
+        phase3_property_points = st.session_state.get(
+        "phase3_supplier_property_points",
+        [],
+        )
+    
+        if phase3_property_points:
+            st.markdown(
+                "#### Verified Temperature-Dependent Properties"
+            )
+    
+            st.dataframe(
+                pd.DataFrame(
+                    phase3_property_points
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+    
+            if len(phase3_property_points) >= 2:
+                st.success(
+                    f"✓ {len(phase3_property_points)} verified "
+                    "temperature-property points available for "
+                    "bulk-temperature interpolation."
+                )
+    
+            else:
+                st.warning(
+                    "Only one verified property-temperature point "
+                    "is available. Automatic interpolation requires "
+                    "at least two complete points."
+                )
     candidate_name = st.text_input(
         "Coolant / Formulation Name",
         placeholder="예: Supplier Product ABC",
