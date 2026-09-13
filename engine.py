@@ -214,10 +214,48 @@ def rack_dp_from_curve(
     return float(dp)
 
 def rack_dp_from_curve(
-    ...
-):
-    ...
+    flow_lpm: float,
+    curve: RackPressureCurve,
+    allow_extrapolation: bool = False,
+) -> float:
+    """
+    Calculate rack pressure drop from an OEM-fitted curve.
+
+    By default, extrapolation outside the verified OEM
+    flow range is blocked.
+    """
+
+    flow = float(
+        flow_lpm
+    )
+
+    if flow <= 0:
+        return 0.0
+
+    if not allow_extrapolation:
+        if (
+            flow < curve.q_min_lpm
+            or flow > curve.q_max_lpm
+        ):
+            raise ValueError(
+                f"Calculated rack flow {flow:.1f} L/min is outside "
+                f"the verified OEM curve range "
+                f"{curve.q_min_lpm:.1f}–{curve.q_max_lpm:.1f} L/min."
+            )
+
+    dp = (
+        curve.a * flow**2
+        + curve.b * flow
+    )
+
+    if dp < 0:
+        raise ValueError(
+            "Calculated rack pressure drop became negative. "
+            "Review the OEM pressure-flow curve."
+        )
+
     return float(dp)
+
 
 # =========================================================
 # Coolant Temperature / Property Helpers
@@ -251,6 +289,7 @@ def bulk_temperature_c(
         supply
         + return_temp
     ) / 2.0
+
 
 def interpolate_coolant_properties(
     property_points: list[dict],
@@ -409,8 +448,6 @@ def interpolate_coolant_properties(
     lower = None
     upper = None
 
-    # Locate the two verified temperatures
-    # surrounding T_bulk.
     for index in range(
         len(cleaned_points) - 1
     ):
@@ -454,7 +491,6 @@ def interpolate_coolant_properties(
         t2 - t1
     )
 
-    # Linear interpolation: density
     rho = (
         lower["density_kg_m3"]
         + fraction
@@ -464,7 +500,6 @@ def interpolate_coolant_properties(
         )
     )
 
-    # Linear interpolation: specific heat
     cp = (
         lower["cp_kj_kgk"]
         + fraction
@@ -474,7 +509,6 @@ def interpolate_coolant_properties(
         )
     )
 
-    # Logarithmic interpolation: dynamic viscosity
     log_mu_1 = math.log(
         lower["viscosity_mpas"]
     )
@@ -508,11 +542,7 @@ def interpolate_coolant_properties(
             f"{t1:.1f}°C and {t2:.1f}°C"
         ),
     }
-
-def validate_racks(
-    racks: pd.DataFrame,
-    ...
-):
+    
 def validate_racks(racks: pd.DataFrame) -> list[str]:
     """Return human-readable validation errors. Empty list means usable input."""
     errors: list[str] = []
