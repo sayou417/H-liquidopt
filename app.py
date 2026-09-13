@@ -5619,6 +5619,18 @@ elif phase == 4:
             branch_length_m=branch_l,
             branch_diameter_m=branch_d * scale,
             rack_dp_reference_kpa=rack_dp,
+
+            loop_type=st.session_state.get(
+                "loop_type",
+                "Direct Return",
+            ),
+
+            balancing_margin_kpa=float(
+                st.session_state.get(
+                    "balancing_margin_kpa",
+                    15.0,
+                )
+            ),
         )
 
         sensitivity_result = evaluate_coolants(
