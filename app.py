@@ -2029,28 +2029,6 @@ branch_l = float(st.session_state.branch_l)
 
 rack_dp = float(st.session_state.rack_dp)
 
-geom = HydraulicGeometry(
-    common_length_m=common_l,
-    common_diameter_m=common_d,
-    row_length_m=row_l,
-    row_diameter_m=row_d,
-    branch_length_m=branch_l,
-    branch_diameter_m=branch_d,
-    rack_dp_reference_kpa=rack_dp,
-
-    loop_type=st.session_state.get(
-        "_phase4_loop_type",
-        "Direct Return",
-    ),
-
-    balancing_margin_kpa=float(
-        st.session_state.get(
-            "_phase4_balancing_margin_kpa",
-            15.0,
-        )
-    ),
-)
-
 errors = validate_racks(st.session_state.racks)
 if errors:
     st.error("Rack input validation failed:\n- " + "\n- ".join(errors))
@@ -2082,8 +2060,9 @@ common_l = float(st.session_state.common_l)
 row_l = float(st.session_state.row_l)
 branch_l = float(st.session_state.branch_l)
 
-rack_dp = float(st.session_state.rack_dp)
-
+rack_dp = float(
+    st.session_state.rack_dp
+)
 
 geom = HydraulicGeometry(
     common_length_m=common_l,
@@ -2093,8 +2072,26 @@ geom = HydraulicGeometry(
     branch_length_m=branch_l,
     branch_diameter_m=branch_d,
     rack_dp_reference_kpa=rack_dp,
-)
 
+    loop_type=st.session_state.get(
+        "_phase4_loop_type",
+        "Direct Return",
+    ),
+
+    balancing_margin_kpa=float(
+        st.session_state.get(
+            "_phase4_balancing_margin_kpa",
+            15.0,
+        )
+    ),
+)
+st.write(
+    "DEBUG HYDRAULIC GEOMETRY",
+    {
+        "loop": geom.loop_type,
+        "margin_kpa": geom.balancing_margin_kpa,
+    },
+)
 errors = validate_racks(st.session_state.racks)
 if errors:
     st.error("Rack input validation failed:\n- " + "\n- ".join(errors))
