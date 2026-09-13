@@ -1332,6 +1332,10 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                         ),
                         "viscosity_mpas": verified.get("viscosity_mpas"),
                         "property_temp_c": verified.get("property_temp_c"),
+                        "coolant_property_points": verified.get(
+                            "coolant_property_points",
+                            [],
+                        ),
                         "source": (
                             f"AI-extracted and engineer-verified · "
                             f"{verified.get('manufacturer') or ''} "
