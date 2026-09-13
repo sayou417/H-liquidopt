@@ -33,6 +33,8 @@ class HydraulicGeometry:
     pump_efficiency: float = 0.75
     motor_efficiency: float = 0.92
     rack_dp_reference_kpa: float = 120.0
+    loop_type: str = "Direct Return"
+    balancing_margin_kpa: float = 15.0
 
 @dataclass
 class RackPressureCurve:
@@ -212,50 +214,6 @@ def rack_dp_from_curve(
         )
 
     return float(dp)
-
-def rack_dp_from_curve(
-    flow_lpm: float,
-    curve: RackPressureCurve,
-    allow_extrapolation: bool = False,
-) -> float:
-    """
-    Calculate rack pressure drop from an OEM-fitted curve.
-
-    By default, extrapolation outside the verified OEM
-    flow range is blocked.
-    """
-
-    flow = float(
-        flow_lpm
-    )
-
-    if flow <= 0:
-        return 0.0
-
-    if not allow_extrapolation:
-        if (
-            flow < curve.q_min_lpm
-            or flow > curve.q_max_lpm
-        ):
-            raise ValueError(
-                f"Calculated rack flow {flow:.1f} L/min is outside "
-                f"the verified OEM curve range "
-                f"{curve.q_min_lpm:.1f}–{curve.q_max_lpm:.1f} L/min."
-            )
-
-    dp = (
-        curve.a * flow**2
-        + curve.b * flow
-    )
-
-    if dp < 0:
-        raise ValueError(
-            "Calculated rack pressure drop became negative. "
-            "Review the OEM pressure-flow curve."
-        )
-
-    return float(dp)
-
 
 # =========================================================
 # Coolant Temperature / Property Helpers
@@ -695,7 +653,149 @@ def hydraulic_candidate(
         _minor_dp_kpa(pod_flow, coolant.rho_kg_m3, geom.common_diameter_m, geom.common_minor_k)
         + (_minor_dp_kpa(rack_flow, coolant.rho_kg_m3, geom.branch_diameter_m, geom.branch_minor_k) if rack_flow > 0 else 0.0)
     )
-    network_dp = dp_common + dp_row + dp_branch + dp_minor
+    
+    # =========================================
+    # Preliminary Rack-Path Imbalance Model
+    # =========================================
+    active_racks_in_row = min(
+        max(
+            int(max_liquid_per_row or 0),
+            0,
+        ),
+        liquid_racks,
+    )
+
+    if active_racks_in_row <= 0:
+        active_racks_in_row = (
+            1 if liquid_racks > 0 else 0
+        )
+
+    loop_type = str(
+        geom.loop_type
+    ).strip()
+
+    # row_length_m is treated as the
+    # worst-case combined equivalent header path
+    # for this preliminary model.
+    if active_racks_in_row == 0:
+        near_row_length_m = 0.0
+        far_row_length_m = 0.0
+
+    elif loop_type == "Direct Return":
+        # In a direct-return arrangement, the rack
+        # nearest the row connection has the shortest
+        # equivalent header path and the farthest rack
+        # has the longest.
+        near_row_length_m = (
+            geom.row_length_m
+            / active_racks_in_row
+        )
+
+        far_row_length_m = (
+            geom.row_length_m
+        )
+
+    elif loop_type == "Reverse Return / Tichelmann":
+        # Preliminary reverse-return assumption:
+        # supply + return path lengths are approximately
+        # hydraulically equalized across rack positions.
+        near_row_length_m = (
+            geom.row_length_m
+        )
+
+        far_row_length_m = (
+            geom.row_length_m
+        )
+
+    else:
+        raise ValueError(
+            "Unsupported loop type. Use "
+            "'Direct Return' or "
+            "'Reverse Return / Tichelmann'."
+        )
+
+    near_row_dp = (
+        _pipe_dp_kpa(
+            row_flow,
+            coolant.rho_kg_m3,
+            coolant.mu_pa_s,
+            near_row_length_m,
+            geom.row_diameter_m,
+            geom.roughness_m,
+        )
+        if row_flow > 0
+        else 0.0
+    )
+
+    far_row_dp = (
+        _pipe_dp_kpa(
+            row_flow,
+            coolant.rho_kg_m3,
+            coolant.mu_pa_s,
+            far_row_length_m,
+            geom.row_diameter_m,
+            geom.roughness_m,
+        )
+        if row_flow > 0
+        else 0.0
+    )
+
+    # Common and rack-branch losses are shared
+    # in this preliminary path comparison.
+    non_row_network_dp = (
+        dp_common
+        + dp_branch
+        + dp_minor
+    )
+
+    near_network_dp = (
+        non_row_network_dp
+        + near_row_dp
+    )
+
+    far_network_dp = (
+        non_row_network_dp
+        + far_row_dp
+    )
+
+    path_imbalance_kpa = abs(
+        far_network_dp
+        - near_network_dp
+    )
+
+    network_dp = max(
+        near_network_dp,
+        far_network_dp,
+    )
+
+    if (
+        math.isclose(
+            near_network_dp,
+            far_network_dp,
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        )
+    ):
+        worst_case_rack = (
+            "Hydraulically equivalent rack path"
+        )
+
+    elif far_network_dp > near_network_dp:
+        worst_case_rack = (
+            "Far-end rack"
+        )
+
+    else:
+        worst_case_rack = (
+            "Near-end rack"
+        )
+
+    balancing_margin_kpa = max(
+        float(
+            geom.balancing_margin_kpa
+        ),
+        0.0,
+    )
 
     # =========================================
     # Rack internal pressure drop
@@ -744,8 +844,17 @@ def hydraulic_candidate(
             "Synthetic single-point square-law scaling"
         )
 
-    total_dp = network_dp + rack_dp
-    eta = max(geom.pump_efficiency * geom.motor_efficiency, 1e-6)
+    total_dp = (
+        network_dp
+        + rack_dp
+        + balancing_margin_kpa
+    )
+
+    eta = max(
+        geom.pump_efficiency
+        * geom.motor_efficiency,
+        1e-6,
+    )
     pump_kw = (total_dp * 1000.0) * (pod_flow / 60000.0) / 1000.0 / eta
 
     return {
@@ -755,6 +864,35 @@ def hydraulic_candidate(
         "common_velocity_m_s": _velocity(pod_flow, geom.common_diameter_m),
         "row_velocity_m_s": _velocity(row_flow, geom.row_diameter_m) if row_flow > 0 else 0.0,
         "branch_velocity_m_s": _velocity(rack_flow, geom.branch_diameter_m) if rack_flow > 0 else 0.0,
+        "loop_type": loop_type,
+
+        "near_row_length_m": (
+            near_row_length_m
+        ),
+
+        "far_row_length_m": (
+            far_row_length_m
+        ),
+
+        "near_network_dp_kpa": (
+            near_network_dp
+        ),
+
+        "far_network_dp_kpa": (
+            far_network_dp
+        ),
+
+        "path_imbalance_kpa": (
+            path_imbalance_kpa
+        ),
+
+        "balancing_margin_kpa": (
+            balancing_margin_kpa
+        ),
+
+        "worst_case_rack": (
+            worst_case_rack
+        ),
         "network_dp_kpa": network_dp,
         "rack_dp_kpa": rack_dp,
         "rack_dp_basis": rack_dp_basis,
