@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import json
 
 from engine import (
     Coolant,
@@ -18,6 +19,7 @@ from engine import (
     candidate_score_table,
     validate_racks,
     recommended_duty_cdus,
+    build_cfd_boundary_conditions,
 )
 
 from ai_adapter import (
@@ -5953,6 +5955,251 @@ elif phase == 4:
         st.warning(
             "Pipe diameter sensitivity result could not be generated."
         )
+    
+    # ===================================
+    # 4D-2 · CFD BOUNDARY CONDITION EXPORT
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 4D-2 · CFD Boundary Condition Export"
+    )
+
+    st.caption(
+        "현재 승인된 Rack heat load, HCR, coolant 및 "
+        "supply / return temperature를 이용해 "
+        "downstream CFD / thermal analysis에 전달할 "
+        "Rack-level boundary-condition dataset을 생성합니다. "
+        "본 기능은 CFD 해석 자체를 수행하지 않습니다."
+    )
+
+    render_tag(
+        "CALCULATED",
+        "calculated",
+    )
+
+    if coolants:
+
+        coolant_name_options = [
+            coolant.name
+            for coolant in coolants
+        ]
+
+        export_coolant_name = st.selectbox(
+            "Coolant Case for CFD Export",
+            coolant_name_options,
+            key="phase4_cfd_export_coolant",
+            help=(
+                "CFD handoff dataset에 적용할 "
+                "승인 coolant case를 선택합니다."
+            ),
+        )
+
+        export_coolant = next(
+            coolant
+            for coolant in coolants
+            if coolant.name
+            == export_coolant_name
+        )
+
+        try:
+            cfd_boundary_df = (
+                build_cfd_boundary_conditions(
+                    phase4_racks,
+                    export_coolant,
+                    supply_t,
+                    return_t,
+                )
+            )
+
+        except ValueError as e:
+            st.error(
+                "CFD boundary-condition dataset을 "
+                f"생성할 수 없습니다: {e}"
+            )
+
+            cfd_boundary_df = pd.DataFrame()
+
+        if not cfd_boundary_df.empty:
+
+            st.markdown(
+                "#### Rack-Level Boundary Conditions"
+            )
+
+            st.dataframe(
+                cfd_boundary_df,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            total_liquid_kw = float(
+                cfd_boundary_df[
+                    "liquid_load_kw"
+                ].sum()
+            )
+
+            total_residual_air_kw = float(
+                cfd_boundary_df[
+                    "residual_air_kw"
+                ].sum()
+            )
+
+            total_required_flow_lpm = float(
+                cfd_boundary_df[
+                    "required_liquid_flow_lpm"
+                ].sum()
+            )
+
+            cfd_1, cfd_2, cfd_3 = (
+                st.columns(3)
+            )
+
+            cfd_1.metric(
+                "Liquid Heat Boundary",
+                f"{total_liquid_kw / 1000:.2f} MW",
+            )
+
+            cfd_2.metric(
+                "Residual Air Heat",
+                f"{total_residual_air_kw / 1000:.2f} MW",
+            )
+
+            cfd_3.metric(
+                "Required Liquid Flow",
+                f"{total_required_flow_lpm:.0f} L/min",
+            )
+
+            # -----------------------------------
+            # CSV export
+            # -----------------------------------
+            cfd_csv = (
+                cfd_boundary_df.to_csv(
+                    index=False
+                ).encode(
+                    "utf-8-sig"
+                )
+            )
+
+            # -----------------------------------
+            # Structured JSON export
+            # -----------------------------------
+            cfd_json_payload = {
+                "schema": (
+                    "H-LiquidOpt-CFD-BC-v1"
+                ),
+
+                "design_case": {
+                    "coolant": (
+                        export_coolant.name
+                    ),
+
+                    "supply_temp_c": float(
+                        supply_t
+                    ),
+
+                    "return_temp_c": float(
+                        return_t
+                    ),
+
+                    "delta_t_k": float(
+                        return_t
+                        - supply_t
+                    ),
+
+                    "coolant_density_kg_m3": float(
+                        export_coolant.rho_kg_m3
+                    ),
+
+                    "coolant_cp_kj_kgk": float(
+                        export_coolant.cp_kj_kgk
+                    ),
+
+                    "coolant_viscosity_mpas": float(
+                        export_coolant.mu_pa_s
+                        * 1000.0
+                    ),
+                },
+
+                "summary": {
+                    "rack_count": int(
+                        len(
+                            cfd_boundary_df
+                        )
+                    ),
+
+                    "total_liquid_load_kw": (
+                        total_liquid_kw
+                    ),
+
+                    "total_residual_air_kw": (
+                        total_residual_air_kw
+                    ),
+
+                    "total_required_flow_lpm": (
+                        total_required_flow_lpm
+                    ),
+                },
+
+                "racks": (
+                    cfd_boundary_df
+                    .to_dict(
+                        orient="records"
+                    )
+                ),
+            }
+
+            cfd_json = json.dumps(
+                cfd_json_payload,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+            download_1, download_2 = (
+                st.columns(2)
+            )
+
+            with download_1:
+                st.download_button(
+                    "Download CFD Boundary CSV",
+                    data=cfd_csv,
+                    file_name=(
+                        "H-LiquidOpt_CFD_Boundary_"
+                        f"{export_coolant.name}.csv"
+                    ),
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+
+            with download_2:
+                st.download_button(
+                    "Download CFD Boundary JSON",
+                    data=cfd_json,
+                    file_name=(
+                        "H-LiquidOpt_CFD_Boundary_"
+                        f"{export_coolant.name}.json"
+                    ),
+                    mime="application/json",
+                    use_container_width=True,
+                )
+
+            st.info(
+                "Residual Air Heat는 D2C로 제거되지 않고 "
+                "공간 측에 남는 열부하를 의미하며, "
+                "room-side CFD thermal boundary condition으로 "
+                "활용할 수 있습니다."
+            )
+
+            st.warning(
+                "본 파일은 vendor-neutral structured handoff입니다. "
+                "특정 CFD software의 native import format을 "
+                "의미하지 않으며, 실제 CFD tool 적용 시 해당 "
+                "software schema에 맞춘 field mapping이 필요합니다."
+            )
+
+    else:
+        st.warning(
+            "CFD export에 사용할 승인 coolant case가 없습니다."
+        )    
     # ===================================
     # 4E · ENGINEERING CONSTRAINT REVIEW
     # ===================================
