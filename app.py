@@ -5373,6 +5373,133 @@ elif phase == 4:
         use_container_width=True,
         hide_index=True,
     )
+    # ===================================
+    # HYDRAULIC DISTRIBUTION REVIEW
+    # ===================================
+    required_distribution_cols = {
+        "loop_type",
+        "near_network_dp_kpa",
+        "far_network_dp_kpa",
+        "path_imbalance_kpa",
+        "balancing_margin_kpa",
+        "worst_case_rack",
+    }
+
+    if (
+        not results.empty
+        and required_distribution_cols.issubset(
+            results.columns
+        )
+    ):
+        st.markdown(
+            "#### Hydraulic Distribution Review"
+        )
+
+        max_imbalance_index = (
+            results["path_imbalance_kpa"].idxmax()
+        )
+
+        max_imbalance_row = results.loc[
+            max_imbalance_index
+        ]
+
+        active_loop_type = str(
+            max_imbalance_row["loop_type"]
+        )
+
+        max_path_imbalance = float(
+            max_imbalance_row[
+                "path_imbalance_kpa"
+            ]
+        )
+
+        near_dp = float(
+            max_imbalance_row[
+                "near_network_dp_kpa"
+            ]
+        )
+
+        far_dp = float(
+            max_imbalance_row[
+                "far_network_dp_kpa"
+            ]
+        )
+
+        balancing_margin = float(
+            max_imbalance_row[
+                "balancing_margin_kpa"
+            ]
+        )
+
+        worst_case_path = str(
+            max_imbalance_row[
+                "worst_case_rack"
+            ]
+        )
+
+        review_1, review_2, review_3, review_4 = (
+            st.columns(4)
+        )
+
+        review_1.metric(
+            "Loop Configuration",
+            active_loop_type,
+        )
+
+        review_2.metric(
+            "Max Path Imbalance",
+            f"{max_path_imbalance:.2f} kPa",
+        )
+
+        review_3.metric(
+            "Balancing Margin",
+            f"{balancing_margin:.1f} kPa",
+        )
+
+        review_4.metric(
+            "Worst-Case Path",
+            worst_case_path,
+        )
+
+        path_1, path_2 = st.columns(2)
+
+        path_1.metric(
+            "Near-End Network ΔP",
+            f"{near_dp:.2f} kPa",
+        )
+
+        path_2.metric(
+            "Far-End Network ΔP",
+            f"{far_dp:.2f} kPa",
+        )
+
+        if (
+            active_loop_type
+            == "Reverse Return / Tichelmann"
+        ):
+            st.info(
+                "Reverse Return preliminary model: "
+                "공급·환수의 결합 등가 경로를 균등화하여 "
+                "Near/Far rack 간 hydraulic path 차이를 "
+                "줄이는 구성으로 평가됩니다."
+            )
+
+        else:
+            st.info(
+                "Direct Return preliminary model: "
+                "Far-end rack의 등가 배관 경로가 더 길어 "
+                "Near/Far rack 간 hydraulic resistance "
+                "차이가 발생할 수 있습니다."
+            )
+
+        st.caption(
+            "※ 본 결과는 preliminary path-resistance comparison입니다. "
+            "각 rack의 실제 유량 분배를 반복 계산하는 상세 hydraulic "
+            "network solver 결과가 아니며, 최종 balancing valve 선정과 "
+            "commissioning setpoint는 별도 검토가 필요합니다."
+        )
+
+    if rack_dp_curve is not None:
     if rack_dp_curve is not None:
         st.caption(
             "※ Flow는 Q = ṁCpΔT로부터 계산된 Thermal Required Flow입니다. "
