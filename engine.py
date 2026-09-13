@@ -561,7 +561,129 @@ def pod_summary(racks: pd.DataFrame) -> pd.DataFrame:
         )
     )
 
+def build_cfd_boundary_conditions(
+    racks: pd.DataFrame,
+    coolant: Coolant,
+    supply_temp_c: float,
+    return_temp_c: float,
+) -> pd.DataFrame:
+    """
+    Build rack-level boundary-condition data for
+    downstream CFD / thermal analysis handoff.
 
+    This function does not perform CFD.
+    It only structures deterministic design outputs
+    into rack-level boundary conditions.
+    """
+
+    supply_temp = float(
+        supply_temp_c
+    )
+
+    return_temp = float(
+        return_temp_c
+    )
+
+    if return_temp <= supply_temp:
+        raise ValueError(
+            "Return temperature must be greater than "
+            "supply temperature."
+        )
+
+    delta_t = (
+        return_temp
+        - supply_temp
+    )
+
+    rack_data = heat_loads(
+        racks
+    ).copy()
+
+    rack_data[
+        "required_liquid_flow_lpm"
+    ] = rack_data[
+        "liquid_load_kw"
+    ].apply(
+        lambda heat_kw: required_flow_lpm(
+            float(heat_kw),
+            coolant,
+            delta_t,
+        )
+        if float(heat_kw) > 0
+        else 0.0
+    )
+
+    rack_data[
+        "supply_temp_c"
+    ] = supply_temp
+
+    rack_data[
+        "return_temp_c"
+    ] = return_temp
+
+    rack_data[
+        "delta_t_k"
+    ] = delta_t
+
+    rack_data[
+        "coolant"
+    ] = coolant.name
+
+    rack_data[
+        "coolant_density_kg_m3"
+    ] = float(
+        coolant.rho_kg_m3
+    )
+
+    rack_data[
+        "coolant_cp_kj_kgk"
+    ] = float(
+        coolant.cp_kj_kgk
+    )
+
+    rack_data[
+        "coolant_viscosity_mpas"
+    ] = float(
+        coolant.mu_pa_s
+        * 1000.0
+    )
+
+    output_columns = [
+        "rack_id",
+        "pod",
+    ]
+
+    if "row" in rack_data.columns:
+        output_columns.append(
+            "row"
+        )
+
+    if "col" in rack_data.columns:
+        output_columns.append(
+            "col"
+        )
+
+    output_columns.extend(
+        [
+            "it_power_kw",
+            "hcr",
+            "liquid_load_kw",
+            "residual_air_kw",
+            "required_liquid_flow_lpm",
+            "supply_temp_c",
+            "return_temp_c",
+            "delta_t_k",
+            "coolant",
+            "coolant_density_kg_m3",
+            "coolant_cp_kj_kgk",
+            "coolant_viscosity_mpas",
+        ]
+    )
+
+    return rack_data[
+        output_columns
+    ].copy()
+    
 def required_flow_lpm(q_kw: float, coolant: Coolant, delta_t_k: float) -> float:
     if delta_t_k <= 0 or coolant.cp_kj_kgk <= 0 or coolant.rho_kg_m3 <= 0:
         raise ValueError("delta-T, Cp and density must be positive")
