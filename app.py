@@ -5342,7 +5342,7 @@ elif phase == 4:
             "The documented flow value is shown as an OEM reference. "
             "A difference does not automatically mean PASS or FAIL."
         )
-    desired_cols = [
+        desired_cols = [
         "coolant",
         "pod",
         "liquid_racks",
@@ -5351,13 +5351,20 @@ elif phase == 4:
         "rack_flow_lpm",
         "pod_flow_lpm",
         "branch_velocity_m_s",
+
+        "loop_type",
+        "near_network_dp_kpa",
+        "far_network_dp_kpa",
+        "path_imbalance_kpa",
+        "balancing_margin_kpa",
+        "worst_case_rack",
+
         "network_dp_kpa",
         "rack_dp_kpa",
         "rack_dp_basis",
         "total_dp_kpa",
         "pump_kw",
     ]
-
     show_cols = [
         col
         for col in desired_cols
@@ -5410,6 +5417,10 @@ elif phase == 4:
             ),
             Worst_Total_DP_kPa=(
                 "total_dp_kpa",
+                "max",
+            ),
+            Max_Path_Imbalance_kPa=(
+                "path_imbalance_kpa",
                 "max",
             ),
             Total_Pump_kW=(
