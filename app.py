@@ -13,6 +13,8 @@ from engine import (
     pod_summary,
     evaluate_coolants,
     fit_rack_dp_curve,
+    bulk_temperature_c,
+    interpolate_coolant_properties,
     candidate_score_table,
     validate_racks,
     recommended_duty_cdus,
@@ -3748,7 +3750,78 @@ elif phase == 3:
         if candidate_mu_mpas > 0
         else 0.0
     )
+    
+    # =========================================
+    # BULK-TEMPERATURE PROPERTY CORRECTION
+    # =========================================
+    effective_candidate_rho = candidate_rho
+    effective_candidate_cp = candidate_cp
+    effective_candidate_mu_mpas = candidate_mu_mpas
+    effective_candidate_mu_pa_s = candidate_mu_pa_s
+    effective_property_temp_c = candidate_temp
 
+    property_interpolation_active = False
+    property_interpolation_basis = (
+        "Single-point supplier property input"
+    )
+
+    if len(phase3_property_points) >= 2:
+        try:
+            t_bulk_c = bulk_temperature_c(
+                supply_t,
+                return_t,
+            )
+
+            interpolated_properties = (
+                interpolate_coolant_properties(
+                    phase3_property_points,
+                    t_bulk_c,
+                )
+            )
+
+            effective_candidate_rho = float(
+                interpolated_properties[
+                    "density_kg_m3"
+                ]
+            )
+
+            effective_candidate_cp = float(
+                interpolated_properties[
+                    "cp_kj_kgk"
+                ]
+            )
+
+            effective_candidate_mu_mpas = float(
+                interpolated_properties[
+                    "viscosity_mpas"
+                ]
+            )
+
+            effective_candidate_mu_pa_s = (
+                effective_candidate_mu_mpas
+                / 1000.0
+            )
+
+            effective_property_temp_c = float(
+                interpolated_properties[
+                    "temperature_c"
+                ]
+            )
+
+            property_interpolation_basis = (
+                interpolated_properties[
+                    "interpolation_basis"
+                ]
+            )
+
+            property_interpolation_active = True
+
+        except ValueError as e:
+            st.warning(
+                "Automatic temperature-dependent property "
+                f"correction was not applied: {e}"
+            )
+    
     if candidate_data_complete:
         st.success(
             "Candidate numerical property data · COMPLETE"
