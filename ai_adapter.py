@@ -155,6 +155,52 @@ SPEC_SCHEMA = {
             },
         },
         
+        "coolant_property_points": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "temperature_c": {
+                        "type": "number"
+                    },
+                    "density_kg_m3": {
+                        "type": ["number", "null"]
+                    },
+                    "cp_kj_kgk": {
+                        "type": ["number", "null"]
+                    },
+                    "viscosity_mpas": {
+                        "type": ["number", "null"]
+                    },
+                    "page": {
+                        "type": [
+                            "integer",
+                            "null",
+                        ]
+                    },
+                    "evidence": {
+                        "type": "string"
+                    },
+                    "condition": {
+                        "type": [
+                            "string",
+                            "null",
+                        ]
+                    },
+                },
+                "required": [
+                    "temperature_c",
+                    "density_kg_m3",
+                    "cp_kj_kgk",
+                    "viscosity_mpas",
+                    "page",
+                    "evidence",
+                    "condition",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        
         "notes": {
             "type": "array",
             "items": {
@@ -207,6 +253,7 @@ SPEC_SCHEMA = {
         "recommended_flow_lpm",
         "pressure_drop_kpa",
         "rack_flow_pressure_points",
+        "coolant_property_points",
         "notes",
         "sources"
     ],
@@ -420,6 +467,64 @@ Rules:
 
 11. If no multi-point or single-point rack flow-pressure data
     is explicitly available, return an empty array.
+
+COOLANT TEMPERATURE-PROPERTY TABLE EXTRACTION
+
+If the source document contains coolant properties reported
+at multiple temperatures, extract them into coolant_property_points.
+
+The purpose of this dataset is to allow the deterministic
+H-LiquidOpt physics engine to evaluate coolant properties
+at the project bulk temperature later.
+
+Rules:
+
+1. Extract only explicitly documented property values.
+
+2. Do NOT interpolate, extrapolate, regress, estimate,
+   or calculate missing coolant properties.
+
+3. Each point must correspond to an explicitly documented
+   property reference temperature.
+
+4. Extract the following properties when available:
+   - density in kg/m3
+   - specific heat in kJ/(kg K)
+   - dynamic viscosity in mPa·s
+
+5. If one property is not reported at a given temperature,
+   return null for that property. Do not estimate it.
+
+6. Do NOT mix data from different coolant formulations,
+   glycol concentrations, product grades, or test conditions.
+
+7. If the property table refers to a specific coolant
+   concentration or formulation, preserve that information
+   in the condition field.
+
+8. Unit normalization is allowed only when the source
+   explicitly provides convertible units.
+
+9. Dynamic viscosity and kinematic viscosity are not
+   interchangeable. Do NOT convert kinematic viscosity
+   to dynamic viscosity unless all required source values
+   for an explicit conversion are provided. Prefer null
+   rather than inference.
+
+10. Record the source page and a short identifying evidence
+    phrase for each temperature-property row when possible.
+
+11. The AI must NOT select the design property values and
+    must NOT calculate bulk temperature.
+
+12. Bulk-temperature calculation and property interpolation
+    are performed later by the deterministic physics engine.
+
+13. If the document contains only one property-temperature
+    point, include that one point.
+
+14. If no explicit temperature-dependent coolant property
+    data are available, return an empty array.
 
 Possible document types include:
 
