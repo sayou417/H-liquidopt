@@ -1803,6 +1803,65 @@ with st.sidebar:
         )
 
         # -------------------------------------
+        # Hydraulic loop / balancing
+        # -------------------------------------
+        restore_sidebar_widget(
+            "_phase4_loop_type",
+            "loop_type",
+            "Direct Return",
+        )
+
+        restore_sidebar_widget(
+            "_phase4_balancing_margin_kpa",
+            "balancing_margin_kpa",
+            15.0,
+        )
+
+        st.markdown(
+            "**Hydraulic loop / balancing**"
+        )
+
+        st.radio(
+            "Hydraulic Loop Configuration",
+            [
+                "Direct Return",
+                "Reverse Return / Tichelmann",
+            ],
+            key="_phase4_loop_type",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase4_loop_type",
+                "loop_type",
+                4,
+            ),
+            help=(
+                "Direct Return은 Rack 위치에 따라 공급·환수 "
+                "경로 길이 차이가 발생할 수 있습니다. "
+                "Reverse Return / Tichelmann은 공급·환수 경로를 "
+                "조합하여 Rack 간 등가 경로 차이를 줄이는 방식입니다."
+            ),
+        )
+
+        st.number_input(
+            "Balancing Valve ΔP Margin (kPa)",
+            min_value=0.0,
+            max_value=50.0,
+            step=1.0,
+            key="_phase4_balancing_margin_kpa",
+            on_change=sync_sidebar_widget,
+            args=(
+                "_phase4_balancing_margin_kpa",
+                "balancing_margin_kpa",
+                4,
+            ),
+            help=(
+                "Worst-case hydraulic path 기준 Pump Head에 "
+                "추가하는 preliminary balancing/control-valve "
+                "pressure margin입니다."
+            ),
+        )
+
+        # -------------------------------------
         # Pipe geometry
         # -------------------------------------
         st.markdown(
