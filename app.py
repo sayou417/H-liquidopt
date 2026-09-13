@@ -3821,6 +3821,46 @@ elif phase == 3:
                 "Automatic temperature-dependent property "
                 f"correction was not applied: {e}"
             )
+
+    if property_interpolation_active:
+        st.markdown(
+            "#### Bulk-Temperature Property Correction"
+        )
+
+        p1, p2, p3, p4 = st.columns(4)
+
+        p1.metric(
+            "T_bulk",
+            f"{effective_property_temp_c:.1f} °C",
+        )
+
+        p2.metric(
+            "Density",
+            f"{effective_candidate_rho:.2f} kg/m³",
+        )
+
+        p3.metric(
+            "Cp",
+            f"{effective_candidate_cp:.4f} kJ/kg·K",
+        )
+
+        p4.metric(
+            "Viscosity",
+            f"{effective_candidate_mu_mpas:.4f} mPa·s",
+        )
+
+        st.success(
+            "✓ Temperature-dependent coolant properties "
+            "were evaluated at the project bulk temperature."
+        )
+
+        st.caption(
+            f"Interpolation basis: {property_interpolation_basis}. "
+            "Density and Cp use linear interpolation; "
+            "dynamic viscosity uses logarithmic interpolation. "
+            "No extrapolation outside the engineer-verified "
+            "property-table range is permitted."
+        )
     
     if candidate_data_complete:
         st.success(
