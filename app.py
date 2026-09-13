@@ -5500,7 +5500,6 @@ elif phase == 4:
         )
 
     if rack_dp_curve is not None:
-    if rack_dp_curve is not None:
         st.caption(
             "※ Flow는 Q = ṁCpΔT로부터 계산된 Thermal Required Flow입니다. "
             "Rack ΔP는 engineer-verified OEM Q–ΔP operating points에 "
