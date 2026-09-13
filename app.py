@@ -3643,7 +3643,14 @@ elif phase == 3:
         )
         
         st.session_state["phase3_ai_imported"] = True
-
+    
+    # =========================================
+    # Temperature-dependent property dataset
+    # =========================================
+    phase3_property_points = st.session_state.get(
+        "phase3_supplier_property_points",
+        [],
+    )
     st.caption(
         "OEM 또는 coolant supplier 자료에서 확인한 값을 직접 입력합니다. "
         "초기값 0은 미입력 상태를 의미하며 H-LiquidOpt가 물성을 생성하지 않습니다."
@@ -3657,10 +3664,6 @@ elif phase == 3:
             "Review or edit the values below before Phase 3 approval."
         )
 
-        phase3_property_points = st.session_state.get(
-        "phase3_supplier_property_points",
-        [],
-        )
     
         if phase3_property_points:
             st.markdown(
