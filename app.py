@@ -866,6 +866,227 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                     "engineer-verified. It will not be used "
                     "by the physics engine."
                 )
+
+        # =========================================
+        # Engineer Verification · Coolant Property Table
+        # =========================================
+        verified_coolant_property_points = []
+
+        coolant_property_points = result.get(
+            "coolant_property_points",
+            [],
+        )
+
+        if coolant_property_points:
+            st.markdown(
+                "#### E · Temperature-Dependent Coolant Properties"
+            )
+
+            st.caption(
+                "Review or correct the AI-extracted coolant "
+                "properties before they are used for "
+                "bulk-temperature property interpolation."
+            )
+
+            coolant_property_editor_df = pd.DataFrame(
+                coolant_property_points
+            )
+
+            # Ensure all expected columns exist
+            for column in [
+                "temperature_c",
+                "density_kg_m3",
+                "cp_kj_kgk",
+                "viscosity_mpas",
+                "page",
+                "evidence",
+                "condition",
+            ]:
+                if column not in coolant_property_editor_df.columns:
+                    coolant_property_editor_df[
+                        column
+                    ] = None
+
+            coolant_property_editor_df = (
+                coolant_property_editor_df[
+                    [
+                        "temperature_c",
+                        "density_kg_m3",
+                        "cp_kj_kgk",
+                        "viscosity_mpas",
+                        "page",
+                        "evidence",
+                        "condition",
+                    ]
+                ]
+            )
+
+            edited_coolant_property_df = st.data_editor(
+                coolant_property_editor_df,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="dynamic",
+                key="ai_coolant_property_editor",
+                column_config={
+                    "temperature_c": st.column_config.NumberColumn(
+                        "Temperature (°C)",
+                        format="%.1f",
+                    ),
+                    "density_kg_m3": st.column_config.NumberColumn(
+                        "Density (kg/m³)",
+                        min_value=0.0,
+                        format="%.2f",
+                    ),
+                    "cp_kj_kgk": st.column_config.NumberColumn(
+                        "Cp (kJ/kg·K)",
+                        min_value=0.0,
+                        format="%.4f",
+                    ),
+                    "viscosity_mpas": st.column_config.NumberColumn(
+                        "Viscosity (mPa·s)",
+                        min_value=0.0,
+                        format="%.4f",
+                    ),
+                    "page": st.column_config.NumberColumn(
+                        "Source Page",
+                        min_value=1,
+                        step=1,
+                    ),
+                    "evidence": st.column_config.TextColumn(
+                        "Evidence"
+                    ),
+                    "condition": st.column_config.TextColumn(
+                        "Condition"
+                    ),
+                },
+            )
+
+            coolant_properties_verified = st.checkbox(
+                "I verified these temperature-dependent "
+                "coolant properties against the source document.",
+                key="ai_verify_coolant_property_table",
+            )
+
+            clean_property_df = (
+                edited_coolant_property_df.copy()
+            )
+
+            numeric_columns = [
+                "temperature_c",
+                "density_kg_m3",
+                "cp_kj_kgk",
+                "viscosity_mpas",
+            ]
+
+            for column in numeric_columns:
+                clean_property_df[
+                    column
+                ] = pd.to_numeric(
+                    clean_property_df[
+                        column
+                    ],
+                    errors="coerce",
+                )
+
+            # Engine interpolation requires complete
+            # rho / Cp / viscosity rows.
+            complete_property_df = (
+                clean_property_df.dropna(
+                    subset=[
+                        "temperature_c",
+                        "density_kg_m3",
+                        "cp_kj_kgk",
+                        "viscosity_mpas",
+                    ]
+                )
+                .copy()
+            )
+
+            property_validation_errors = []
+
+            if len(complete_property_df) < 2:
+                property_validation_errors.append(
+                    "At least two complete temperature-property "
+                    "points are required for automatic interpolation."
+                )
+
+            if (
+                complete_property_df[
+                    "density_kg_m3"
+                ] <= 0
+            ).any():
+                property_validation_errors.append(
+                    "Density values must be greater than 0."
+                )
+
+            if (
+                complete_property_df[
+                    "cp_kj_kgk"
+                ] <= 0
+            ).any():
+                property_validation_errors.append(
+                    "Specific-heat values must be greater than 0."
+                )
+
+            if (
+                complete_property_df[
+                    "viscosity_mpas"
+                ] <= 0
+            ).any():
+                property_validation_errors.append(
+                    "Viscosity values must be greater than 0."
+                )
+
+            if complete_property_df[
+                "temperature_c"
+            ].duplicated().any():
+                property_validation_errors.append(
+                    "Duplicate property temperatures are not allowed."
+                )
+
+            complete_property_df = (
+                complete_property_df.sort_values(
+                    "temperature_c"
+                )
+            )
+
+            if property_validation_errors:
+                for error_message in property_validation_errors:
+                    st.warning(
+                        error_message
+                    )
+
+            elif coolant_properties_verified:
+                verified_coolant_property_points = (
+                    complete_property_df.where(
+                        pd.notnull(
+                            complete_property_df
+                        ),
+                        None,
+                    )
+                    .to_dict(
+                        orient="records"
+                    )
+                )
+
+                st.success(
+                    f"✓ {len(verified_coolant_property_points)} "
+                    "temperature-property points verified."
+                )
+
+            else:
+                st.info(
+                    "The coolant property table has not yet been "
+                    "engineer-verified. Fixed single-point "
+                    "properties will remain the fallback."
+                )
+
+        else:
+            st.info(
+                "No explicit temperature-dependent coolant "
+                "property table was found in this document."
+            )
+            
         if st.button(
             "✓ Save Engineer-Verified Specification",
             type="primary",
@@ -993,6 +1214,9 @@ with st.expander("🤖 AI Specification Assistant", expanded=False):
                     "recommended_flow_lpm": verified_flow,
                     "pressure_drop_kpa": verified_dp,
                     "rack_flow_pressure_points": verified_rack_curve_points,
+                    "coolant_property_points": (
+                        verified_coolant_property_points
+                    ),
                     "sources": result.get(
                         "sources",
                         [],
