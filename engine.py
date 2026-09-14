@@ -37,6 +37,44 @@ class HydraulicGeometry:
     balancing_margin_kpa: float = 15.0
 
 @dataclass
+class HydraulicNetworkLayout:
+    """
+    Physical layout inputs for detailed rack-level
+    hydraulic network analysis.
+
+    Coordinates are project-local coordinates in metres.
+
+    rack_pitch_m:
+        Centre-to-centre spacing between adjacent rack columns.
+
+    row_pitch_m:
+        Centre-to-centre spacing between rack rows.
+
+    origin_x_m / origin_y_m:
+        Coordinate of the first rack position.
+
+    cdu_y_m:
+        Y-coordinate of the CDU / common-header connection.
+
+    supply_header_x_m:
+        X-coordinate where the supply header enters each row.
+
+    return_header_x_m:
+        X-coordinate where the return header leaves each row.
+    """
+
+    rack_pitch_m: float = 0.8
+    row_pitch_m: float = 4.0
+
+    origin_x_m: float = 0.0
+    origin_y_m: float = 0.0
+
+    cdu_y_m: float = -2.0
+
+    supply_header_x_m: float = 0.0
+    return_header_x_m: float = 0.0
+
+@dataclass
 class RackPressureCurve:
     """
     OEM rack pressure-flow curve.
@@ -1065,6 +1103,154 @@ def rack_flow_requirements(
         "hcr",
         "liquid_load_kw",
         "required_flow_lpm",
+    ]
+
+    return (
+        rack_data[
+            output_columns
+        ]
+        .sort_values(
+            [
+                "pod",
+                "row_index",
+                "col_index",
+            ]
+        )
+        .reset_index(
+            drop=True
+        )
+    )
+
+def build_rack_network_paths(
+    racks: pd.DataFrame,
+    coolant: Coolant,
+    delta_t_k: float,
+    layout: HydraulicNetworkLayout,
+) -> pd.DataFrame:
+    """
+    Convert rack row/column locations into physical
+    coordinates and supply/return hydraulic path lengths.
+
+    This function builds geometry only.
+    It does not solve rack flow distribution.
+    """
+
+    if layout.rack_pitch_m <= 0:
+        raise ValueError(
+            "rack_pitch_m must be greater than 0."
+        )
+
+    if layout.row_pitch_m <= 0:
+        raise ValueError(
+            "row_pitch_m must be greater than 0."
+        )
+
+    rack_data = rack_flow_requirements(
+        racks,
+        coolant,
+        delta_t_k,
+    ).copy()
+
+    if rack_data.empty:
+        return rack_data
+
+    # =========================================
+    # Physical rack coordinates
+    # =========================================
+    rack_data[
+        "x_m"
+    ] = (
+        float(layout.origin_x_m)
+        + rack_data[
+            "col_index"
+        ].astype(float)
+        * float(layout.rack_pitch_m)
+    )
+
+    rack_data[
+        "y_m"
+    ] = (
+        float(layout.origin_y_m)
+        + rack_data[
+            "row_index"
+        ].astype(float)
+        * float(layout.row_pitch_m)
+    )
+
+    # =========================================
+    # Common-header path from CDU to row
+    # =========================================
+    rack_data[
+        "supply_common_length_m"
+    ] = (
+        rack_data["y_m"]
+        - float(layout.cdu_y_m)
+    ).abs()
+
+    rack_data[
+        "return_common_length_m"
+    ] = (
+        rack_data["y_m"]
+        - float(layout.cdu_y_m)
+    ).abs()
+
+    # =========================================
+    # Row-header path
+    # =========================================
+    rack_data[
+        "supply_row_length_m"
+    ] = (
+        rack_data["x_m"]
+        - float(
+            layout.supply_header_x_m
+        )
+    ).abs()
+
+    rack_data[
+        "return_row_length_m"
+    ] = (
+        rack_data["x_m"]
+        - float(
+            layout.return_header_x_m
+        )
+    ).abs()
+
+    # Combined physical header path
+    rack_data[
+        "total_header_path_m"
+    ] = (
+        rack_data[
+            "supply_common_length_m"
+        ]
+        + rack_data[
+            "return_common_length_m"
+        ]
+        + rack_data[
+            "supply_row_length_m"
+        ]
+        + rack_data[
+            "return_row_length_m"
+        ]
+    )
+
+    output_columns = [
+        "rack_id",
+        "pod",
+        "row",
+        "col",
+        "row_index",
+        "col_index",
+        "x_m",
+        "y_m",
+        "it_power_kw",
+        "hcr",
+        "liquid_load_kw",
+        "required_flow_lpm",
+        "supply_common_length_m",
+        "return_common_length_m",
+        "supply_row_length_m",
+        "return_row_length_m",
+        "total_header_path_m",
     ]
 
     return (
