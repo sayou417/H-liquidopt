@@ -5417,6 +5417,31 @@ elif phase == 4:
         "total_dp_kpa",
         "pump_kw",
     ]
+    
+    desired_cols = [
+        "coolant",
+        "pod",
+        "liquid_racks",
+        "liquid_load_kw",
+        "rack_avg_heat_kw",
+        "rack_flow_lpm",
+        "pod_flow_lpm",
+        "branch_velocity_m_s",
+
+        "loop_type",
+        "near_network_dp_kpa",
+        "far_network_dp_kpa",
+        "path_imbalance_kpa",
+        "balancing_margin_kpa",
+        "worst_case_rack",
+
+        "network_dp_kpa",
+        "rack_dp_kpa",
+        "rack_dp_basis",
+        "total_dp_kpa",
+        "pump_kw",
+    ]
+
     show_cols = [
         col
         for col in desired_cols
