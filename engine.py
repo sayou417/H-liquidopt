@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import numpy as np
+from scipy.optimize import least_squares
 import pandas as pd
 
 
