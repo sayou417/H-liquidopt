@@ -6,3 +6,4 @@ tabulate
 openai
 pypdf
 numpy
+scipy>=1.13
