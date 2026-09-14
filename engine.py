@@ -1269,6 +1269,675 @@ def build_rack_network_paths(
         )
     )
 
+def build_hydraulic_network_segments(
+    racks: pd.DataFrame,
+    coolant: Coolant,
+    delta_t_k: float,
+    geom: HydraulicGeometry,
+    layout: HydraulicNetworkLayout,
+) -> pd.DataFrame:
+    """
+    Build a rack-level hydraulic network segment table.
+
+    Each pipe segment stores:
+    - physical length
+    - pipe diameter
+    - racks hydraulically downstream of the segment
+    - thermal required flow through the segment
+    - preliminary pressure drop at that required flow
+
+    This function builds the network and its design-flow
+    reference state. It does not yet solve actual flow
+    distribution.
+    """
+
+    rack_paths = build_rack_network_paths(
+        racks,
+        coolant,
+        delta_t_k,
+        layout,
+    )
+
+    if rack_paths.empty:
+        return pd.DataFrame()
+
+    records = []
+
+    # =========================================
+    # Helper: determine whether a path uses
+    # a specific one-dimensional interval
+    # =========================================
+    def path_uses_interval(
+        connection_position: float,
+        rack_position: float,
+        segment_start: float,
+        segment_end: float,
+    ) -> bool:
+        path_min = min(
+            float(connection_position),
+            float(rack_position),
+        )
+
+        path_max = max(
+            float(connection_position),
+            float(rack_position),
+        )
+
+        seg_min = min(
+            float(segment_start),
+            float(segment_end),
+        )
+
+        seg_max = max(
+            float(segment_start),
+            float(segment_end),
+        )
+
+        tolerance = 1e-9
+
+        return (
+            seg_min >= path_min - tolerance
+            and seg_max <= path_max + tolerance
+            and seg_max - seg_min > tolerance
+        )
+
+    # =========================================
+    # Helper: append one physical segment
+    # =========================================
+    def append_segment(
+        segment_id: str,
+        pod_name: str,
+        segment_type: str,
+        side: str,
+        row_value,
+        start_x_m: float,
+        start_y_m: float,
+        end_x_m: float,
+        end_y_m: float,
+        diameter_m: float,
+        downstream_data: pd.DataFrame,
+        minor_k: float = 0.0,
+    ):
+        length_m = math.sqrt(
+            (
+                float(end_x_m)
+                - float(start_x_m)
+            ) ** 2
+            + (
+                float(end_y_m)
+                - float(start_y_m)
+            ) ** 2
+        )
+
+        if length_m <= 1e-12:
+            return
+
+        downstream_rack_ids = tuple(
+            downstream_data[
+                "rack_id"
+            ].astype(
+                str
+            ).tolist()
+        )
+
+        design_flow_lpm = float(
+            downstream_data[
+                "required_flow_lpm"
+            ].sum()
+        )
+
+        if design_flow_lpm > 0:
+            velocity_m_s = _velocity(
+                design_flow_lpm,
+                diameter_m,
+            )
+
+            pipe_dp_kpa = _pipe_dp_kpa(
+                design_flow_lpm,
+                coolant.rho_kg_m3,
+                coolant.mu_pa_s,
+                length_m,
+                diameter_m,
+                geom.roughness_m,
+            )
+
+            minor_dp_kpa = _minor_dp_kpa(
+                design_flow_lpm,
+                coolant.rho_kg_m3,
+                diameter_m,
+                minor_k,
+            )
+
+        else:
+            velocity_m_s = 0.0
+            pipe_dp_kpa = 0.0
+            minor_dp_kpa = 0.0
+
+        records.append(
+            {
+                "segment_id": segment_id,
+                "pod": pod_name,
+                "row": row_value,
+                "segment_type": segment_type,
+                "side": side,
+                "start_x_m": float(
+                    start_x_m
+                ),
+                "start_y_m": float(
+                    start_y_m
+                ),
+                "end_x_m": float(
+                    end_x_m
+                ),
+                "end_y_m": float(
+                    end_y_m
+                ),
+                "length_m": float(
+                    length_m
+                ),
+                "diameter_m": float(
+                    diameter_m
+                ),
+                "downstream_rack_count": int(
+                    len(
+                        downstream_rack_ids
+                    )
+                ),
+                "downstream_rack_ids": (
+                    downstream_rack_ids
+                ),
+                "design_flow_lpm": (
+                    design_flow_lpm
+                ),
+                "design_velocity_m_s": (
+                    velocity_m_s
+                ),
+                "design_pipe_dp_kpa": (
+                    pipe_dp_kpa
+                ),
+                "minor_k": float(
+                    minor_k
+                ),
+                "design_minor_dp_kpa": (
+                    minor_dp_kpa
+                ),
+                "design_total_dp_kpa": (
+                    pipe_dp_kpa
+                    + minor_dp_kpa
+                ),
+            }
+        )
+
+    # =========================================
+    # Build each Pod as a hydraulic subsystem
+    # =========================================
+    for pod_name in (
+        rack_paths[
+            "pod"
+        ].astype(
+            str
+        ).drop_duplicates()
+    ):
+        pod_data = rack_paths[
+            rack_paths[
+                "pod"
+            ].astype(
+                str
+            )
+            == str(
+                pod_name
+            )
+        ].copy()
+
+        # =====================================
+        # 1 · COMMON SUPPLY / RETURN HEADERS
+        # =====================================
+        row_y_positions = sorted(
+            pod_data[
+                "y_m"
+            ].astype(
+                float
+            ).unique().tolist()
+        )
+
+        common_y_nodes = sorted(
+            set(
+                row_y_positions
+                + [
+                    float(
+                        layout.cdu_y_m
+                    )
+                ]
+            )
+        )
+
+        for index in range(
+            len(
+                common_y_nodes
+            )
+            - 1
+        ):
+            y1 = float(
+                common_y_nodes[
+                    index
+                ]
+            )
+
+            y2 = float(
+                common_y_nodes[
+                    index + 1
+                ]
+            )
+
+            supply_mask = pod_data[
+                "y_m"
+            ].apply(
+                lambda rack_y: path_uses_interval(
+                    layout.cdu_y_m,
+                    float(
+                        rack_y
+                    ),
+                    y1,
+                    y2,
+                )
+            )
+
+            supply_downstream = pod_data[
+                supply_mask
+            ]
+
+            if not supply_downstream.empty:
+                append_segment(
+                    segment_id=(
+                        f"{pod_name}"
+                        f"_SUP_COMMON_{index + 1}"
+                    ),
+                    pod_name=str(
+                        pod_name
+                    ),
+                    segment_type=(
+                        "common_header"
+                    ),
+                    side="supply",
+                    row_value=None,
+                    start_x_m=float(
+                        layout.supply_header_x_m
+                    ),
+                    start_y_m=y1,
+                    end_x_m=float(
+                        layout.supply_header_x_m
+                    ),
+                    end_y_m=y2,
+                    diameter_m=float(
+                        geom.common_diameter_m
+                    ),
+                    downstream_data=(
+                        supply_downstream
+                    ),
+                )
+
+            return_mask = pod_data[
+                "y_m"
+            ].apply(
+                lambda rack_y: path_uses_interval(
+                    layout.cdu_y_m,
+                    float(
+                        rack_y
+                    ),
+                    y1,
+                    y2,
+                )
+            )
+
+            return_downstream = pod_data[
+                return_mask
+            ]
+
+            if not return_downstream.empty:
+                append_segment(
+                    segment_id=(
+                        f"{pod_name}"
+                        f"_RET_COMMON_{index + 1}"
+                    ),
+                    pod_name=str(
+                        pod_name
+                    ),
+                    segment_type=(
+                        "common_header"
+                    ),
+                    side="return",
+                    row_value=None,
+                    start_x_m=float(
+                        layout.return_header_x_m
+                    ),
+                    start_y_m=y1,
+                    end_x_m=float(
+                        layout.return_header_x_m
+                    ),
+                    end_y_m=y2,
+                    diameter_m=float(
+                        geom.common_diameter_m
+                    ),
+                    downstream_data=(
+                        return_downstream
+                    ),
+                )
+
+        # =====================================
+        # 2 · ROW SUPPLY / RETURN HEADERS
+        # =====================================
+        for row_value in (
+            pod_data[
+                "row"
+            ].drop_duplicates()
+        ):
+            row_data = pod_data[
+                pod_data[
+                    "row"
+                ]
+                == row_value
+            ].copy()
+
+            rack_x_positions = sorted(
+                row_data[
+                    "x_m"
+                ].astype(
+                    float
+                ).unique().tolist()
+            )
+
+            # -------------------------------
+            # Supply header
+            # -------------------------------
+            supply_x_nodes = sorted(
+                set(
+                    rack_x_positions
+                    + [
+                        float(
+                            layout.supply_header_x_m
+                        )
+                    ]
+                )
+            )
+
+            for index in range(
+                len(
+                    supply_x_nodes
+                )
+                - 1
+            ):
+                x1 = float(
+                    supply_x_nodes[
+                        index
+                    ]
+                )
+
+                x2 = float(
+                    supply_x_nodes[
+                        index + 1
+                    ]
+                )
+
+                supply_mask = row_data[
+                    "x_m"
+                ].apply(
+                    lambda rack_x: path_uses_interval(
+                        layout.supply_header_x_m,
+                        float(
+                            rack_x
+                        ),
+                        x1,
+                        x2,
+                    )
+                )
+
+                downstream = row_data[
+                    supply_mask
+                ]
+
+                if downstream.empty:
+                    continue
+
+                row_y = float(
+                    row_data[
+                        "y_m"
+                    ].iloc[
+                        0
+                    ]
+                )
+
+                append_segment(
+                    segment_id=(
+                        f"{pod_name}"
+                        f"_ROW_{row_value}"
+                        f"_SUP_{index + 1}"
+                    ),
+                    pod_name=str(
+                        pod_name
+                    ),
+                    segment_type=(
+                        "row_header"
+                    ),
+                    side="supply",
+                    row_value=row_value,
+                    start_x_m=x1,
+                    start_y_m=row_y,
+                    end_x_m=x2,
+                    end_y_m=row_y,
+                    diameter_m=float(
+                        geom.row_diameter_m
+                    ),
+                    downstream_data=(
+                        downstream
+                    ),
+                )
+
+            # -------------------------------
+            # Return header
+            # -------------------------------
+            return_x_nodes = sorted(
+                set(
+                    rack_x_positions
+                    + [
+                        float(
+                            layout.return_header_x_m
+                        )
+                    ]
+                )
+            )
+
+            for index in range(
+                len(
+                    return_x_nodes
+                )
+                - 1
+            ):
+                x1 = float(
+                    return_x_nodes[
+                        index
+                    ]
+                )
+
+                x2 = float(
+                    return_x_nodes[
+                        index + 1
+                    ]
+                )
+
+                return_mask = row_data[
+                    "x_m"
+                ].apply(
+                    lambda rack_x: path_uses_interval(
+                        layout.return_header_x_m,
+                        float(
+                            rack_x
+                        ),
+                        x1,
+                        x2,
+                    )
+                )
+
+                downstream = row_data[
+                    return_mask
+                ]
+
+                if downstream.empty:
+                    continue
+
+                row_y = float(
+                    row_data[
+                        "y_m"
+                    ].iloc[
+                        0
+                    ]
+                )
+
+                append_segment(
+                    segment_id=(
+                        f"{pod_name}"
+                        f"_ROW_{row_value}"
+                        f"_RET_{index + 1}"
+                    ),
+                    pod_name=str(
+                        pod_name
+                    ),
+                    segment_type=(
+                        "row_header"
+                    ),
+                    side="return",
+                    row_value=row_value,
+                    start_x_m=x1,
+                    start_y_m=row_y,
+                    end_x_m=x2,
+                    end_y_m=row_y,
+                    diameter_m=float(
+                        geom.row_diameter_m
+                    ),
+                    downstream_data=(
+                        downstream
+                    ),
+                )
+
+        # =====================================
+        # 3 · RACK BRANCH EQUIVALENT SEGMENTS
+        # =====================================
+        for _, rack_row in (
+            pod_data.iterrows()
+        ):
+            rack_id = str(
+                rack_row[
+                    "rack_id"
+                ]
+            )
+
+            rack_flow = float(
+                rack_row[
+                    "required_flow_lpm"
+                ]
+            )
+
+            branch_pipe_dp = (
+                _pipe_dp_kpa(
+                    rack_flow,
+                    coolant.rho_kg_m3,
+                    coolant.mu_pa_s,
+                    geom.branch_length_m,
+                    geom.branch_diameter_m,
+                    geom.roughness_m,
+                )
+                if rack_flow > 0
+                else 0.0
+            )
+
+            branch_minor_dp = (
+                _minor_dp_kpa(
+                    rack_flow,
+                    coolant.rho_kg_m3,
+                    geom.branch_diameter_m,
+                    geom.branch_minor_k,
+                )
+                if rack_flow > 0
+                else 0.0
+            )
+
+            records.append(
+                {
+                    "segment_id": (
+                        f"{pod_name}"
+                        f"_RACK_{rack_id}"
+                        "_BRANCH"
+                    ),
+                    "pod": str(
+                        pod_name
+                    ),
+                    "row": rack_row[
+                        "row"
+                    ],
+                    "segment_type": (
+                        "rack_branch_equivalent"
+                    ),
+                    "side": "rack",
+                    "start_x_m": float(
+                        rack_row[
+                            "x_m"
+                        ]
+                    ),
+                    "start_y_m": float(
+                        rack_row[
+                            "y_m"
+                        ]
+                    ),
+                    "end_x_m": float(
+                        rack_row[
+                            "x_m"
+                        ]
+                    ),
+                    "end_y_m": float(
+                        rack_row[
+                            "y_m"
+                        ]
+                    ),
+                    "length_m": float(
+                        geom.branch_length_m
+                    ),
+                    "diameter_m": float(
+                        geom.branch_diameter_m
+                    ),
+                    "downstream_rack_count": 1,
+                    "downstream_rack_ids": (
+                        rack_id,
+                    ),
+                    "design_flow_lpm": (
+                        rack_flow
+                    ),
+                    "design_velocity_m_s": (
+                        _velocity(
+                            rack_flow,
+                            geom.branch_diameter_m,
+                        )
+                        if rack_flow > 0
+                        else 0.0
+                    ),
+                    "design_pipe_dp_kpa": (
+                        branch_pipe_dp
+                    ),
+                    "minor_k": float(
+                        geom.branch_minor_k
+                    ),
+                    "design_minor_dp_kpa": (
+                        branch_minor_dp
+                    ),
+                    "design_total_dp_kpa": (
+                        branch_pipe_dp
+                        + branch_minor_dp
+                    ),
+                }
+            )
+
+    return pd.DataFrame(
+        records
+    )
+
 def hydraulic_candidate(
     pod_liquid_load_kw: float,
     liquid_racks: int,
