@@ -878,6 +878,210 @@ def _max_liquid_racks_in_one_row(racks: pd.DataFrame, pod: str) -> int:
     counts = x.groupby("row")["rack_id"].count()
     return int(counts.max()) if not counts.empty else 0
 
+def rack_flow_requirements(
+    racks: pd.DataFrame,
+    coolant: Coolant,
+    delta_t_k: float,
+) -> pd.DataFrame:
+    """
+    Build rack-level hydraulic demand data.
+
+    Unlike the preliminary pod-level model, this function
+    preserves each rack's individual heat load and calculates
+    its own thermal required liquid flow.
+
+    This is the input layer for the detailed hydraulic
+    network solver.
+    """
+
+    if delta_t_k <= 0:
+        raise ValueError(
+            "delta_t_k must be greater than 0."
+        )
+
+    rack_data = heat_loads(
+        racks
+    ).copy()
+
+    rack_data = rack_data[
+        rack_data["liquid_cooled"]
+    ].copy()
+
+    if rack_data.empty:
+        return pd.DataFrame(
+            columns=[
+                "rack_id",
+                "pod",
+                "row",
+                "col",
+                "liquid_load_kw",
+                "required_flow_lpm",
+            ]
+        )
+
+    rack_data[
+        "required_flow_lpm"
+    ] = rack_data[
+        "liquid_load_kw"
+    ].apply(
+        lambda heat_kw: required_flow_lpm(
+            float(heat_kw),
+            coolant,
+            delta_t_k,
+        )
+    )
+
+    # -----------------------------------------
+    # Preserve layout information
+    # -----------------------------------------
+    if "row" not in rack_data.columns:
+        raise ValueError(
+            "Detailed hydraulic network analysis "
+            "requires a 'row' column."
+        )
+
+    if "col" not in rack_data.columns:
+        raise ValueError(
+            "Detailed hydraulic network analysis "
+            "requires a 'col' column."
+        )
+
+    if rack_data[
+        [
+            "row",
+            "col",
+        ]
+    ].isna().any().any():
+        raise ValueError(
+            "Detailed hydraulic network analysis "
+            "requires row/col for every liquid-cooled rack."
+        )
+
+    # -----------------------------------------
+    # Create stable positional indices
+    # without assuming row/col are physical metres
+    # -----------------------------------------
+    def axis_sort_key(
+        value,
+    ):
+        try:
+            return (
+                0,
+                float(value),
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return (
+                1,
+                str(value),
+            )
+
+    unique_rows = sorted(
+        rack_data[
+            "row"
+        ].drop_duplicates().tolist(),
+        key=axis_sort_key,
+    )
+
+    row_index_map = {
+        value: index
+        for index, value
+        in enumerate(
+            unique_rows
+        )
+    }
+
+    rack_data[
+        "row_index"
+    ] = rack_data[
+        "row"
+    ].map(
+        row_index_map
+    ).astype(
+        int
+    )
+
+    rack_data[
+        "col_index"
+    ] = 0
+
+    for row_value in unique_rows:
+        row_mask = (
+            rack_data["row"]
+            == row_value
+        )
+
+        row_columns = sorted(
+            rack_data.loc[
+                row_mask,
+                "col",
+            ].drop_duplicates().tolist(),
+            key=axis_sort_key,
+        )
+
+        col_index_map = {
+            value: index
+            for index, value
+            in enumerate(
+                row_columns
+            )
+        }
+
+        rack_data.loc[
+            row_mask,
+            "col_index",
+        ] = (
+            rack_data.loc[
+                row_mask,
+                "col",
+            ]
+            .map(
+                col_index_map
+            )
+            .astype(
+                int
+            )
+        )
+
+    rack_data[
+        "col_index"
+    ] = rack_data[
+        "col_index"
+    ].astype(
+        int
+    )
+
+    output_columns = [
+        "rack_id",
+        "pod",
+        "row",
+        "col",
+        "row_index",
+        "col_index",
+        "it_power_kw",
+        "hcr",
+        "liquid_load_kw",
+        "required_flow_lpm",
+    ]
+
+    return (
+        rack_data[
+            output_columns
+        ]
+        .sort_values(
+            [
+                "pod",
+                "row_index",
+                "col_index",
+            ]
+        )
+        .reset_index(
+            drop=True
+        )
+    )
 
 def hydraulic_candidate(
     pod_liquid_load_kw: float,
