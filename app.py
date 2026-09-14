@@ -20,6 +20,8 @@ from engine import (
     validate_racks,
     recommended_duty_cdus,
     build_cfd_boundary_conditions,
+    HydraulicNetworkLayout,
+    solve_rack_flow_distribution,
 )
 
 from ai_adapter import (
@@ -1865,6 +1867,57 @@ with st.sidebar:
             ),
         )
 
+        # -------------------------------------
+        # Detailed hydraulic network
+        # -------------------------------------
+        st.markdown(
+            "**Detailed rack-flow network**"
+        )
+
+        st.checkbox(
+            "Enable Detailed Network Analysis",
+            value=False,
+            key="_phase4_enable_network_solver",
+            help=(
+                "Rack row/col 배치와 실제 rack/row pitch를 이용해 "
+                "각 Rack의 hydraulic resistance와 실제 유량분배를 "
+                "비선형 연립계산합니다."
+            ),
+        )
+
+        st.number_input(
+            "Rack pitch (m)",
+            min_value=0.1,
+            value=0.8,
+            step=0.1,
+            key="_phase4_rack_pitch_m",
+            help=(
+                "같은 Row에서 인접 Rack 중심 간 거리입니다."
+            ),
+        )
+
+        st.number_input(
+            "Row pitch (m)",
+            min_value=0.1,
+            value=4.0,
+            step=0.1,
+            key="_phase4_row_pitch_m",
+            help=(
+                "인접 Rack Row 중심 간 거리입니다."
+            ),
+        )
+
+        st.number_input(
+            "CDU / Common Header Y Position (m)",
+            value=-2.0,
+            step=0.5,
+            key="_phase4_cdu_y_m",
+            help=(
+                "프로젝트 로컬 좌표계에서 CDU 또는 "
+                "Common Header 연결점의 Y 위치입니다."
+            ),
+        )
+        
         # -------------------------------------
         # Pipe geometry
         # -------------------------------------
