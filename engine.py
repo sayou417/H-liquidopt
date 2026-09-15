@@ -2495,6 +2495,111 @@ def solve_rack_flow_distribution(
             in enumerate(rack_ids)
         }
 
+        # =====================================
+        # Precompute hydraulic topology
+        # for fast nonlinear iterations
+        # =====================================
+        segment_numbers = (
+            pod_segments.index.tolist()
+        )
+
+        segment_count = len(
+            segment_numbers
+        )
+
+        rack_count = len(
+            rack_ids
+        )
+
+        segment_lengths = (
+            pod_segments[
+                "length_m"
+            ].astype(float).to_numpy()
+        )
+
+        segment_diameters = (
+            pod_segments[
+                "diameter_m"
+            ].astype(float).to_numpy()
+        )
+
+        segment_minor_k = (
+            pod_segments[
+                "minor_k"
+            ].astype(float).to_numpy()
+        )
+
+        segment_types = (
+            pod_segments[
+                "segment_type"
+            ].astype(str).to_numpy()
+        )
+
+        rack_segment_membership = np.zeros(
+            (
+                rack_count,
+                segment_count,
+            ),
+            dtype=bool,
+        )
+
+        segment_downstream_indices = []
+
+        for segment_position, downstream_ids in enumerate(
+            pod_segments[
+                "downstream_rack_ids"
+            ].tolist()
+        ):
+            if isinstance(
+                downstream_ids,
+                str,
+            ):
+                downstream_ids = (
+                    downstream_ids,
+                )
+
+            indices = [
+                rack_index[
+                    str(rack_id)
+                ]
+                for rack_id
+                in downstream_ids
+                if str(rack_id)
+                in rack_index
+            ]
+
+            indices_array = np.array(
+                indices,
+                dtype=int,
+            )
+
+            segment_downstream_indices.append(
+                indices_array
+            )
+
+            if len(
+                indices_array
+            ) > 0:
+                rack_segment_membership[
+                    indices_array,
+                    segment_position,
+                ] = True
+
+        common_segment_mask = (
+            segment_types
+            == "common_header"
+        )
+
+        row_segment_mask = (
+            segment_types
+            == "row_header"
+        )
+
+        branch_segment_mask = (
+            segment_types
+            == "rack_branch_equivalent"
+        )
+
         # -------------------------------------
         # OEM curve range validation
         # -------------------------------------
