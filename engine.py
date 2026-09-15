@@ -2666,20 +2666,20 @@ def solve_rack_flow_distribution(
                 )
             )
 
-        if topology_mode == "in_row":
-            shared_common_minor_dp = 0.0
+            if topology_mode == "in_row":
+                shared_common_minor_dp = 0.0
 
-        else:
-            shared_common_minor_dp = (
-                _minor_dp_kpa(
-                    total_pod_flow,
-                    coolant.rho_kg_m3,
-                    geom.common_diameter_m,
-                    geom.common_minor_k,
+            else:
+                shared_common_minor_dp = (
+                    _minor_dp_kpa(
+                        total_pod_flow,
+                        coolant.rho_kg_m3,
+                        geom.common_diameter_m,
+                        geom.common_minor_k,
+                    )
+                    if total_pod_flow > 0
+                    else 0.0
                 )
-                if total_pod_flow > 0
-                else 0.0
-            )
 
             rack_path_state = {}
 
@@ -2787,7 +2787,7 @@ def solve_rack_flow_distribution(
                 "rack_path_state": rack_path_state,
                 "total_flow_lpm": total_pod_flow,
             }
-
+        
         # =====================================
         # Initial condition
         # =====================================
