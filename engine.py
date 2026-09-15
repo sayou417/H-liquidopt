@@ -1033,77 +1033,138 @@ def rack_flow_requirements(
                 str(value),
             )
 
-    unique_rows = sorted(
-        rack_data[
-            "row"
-        ].drop_duplicates().tolist(),
-        key=axis_sort_key,
-    )
-
-    row_index_map = {
-        value: index
-        for index, value
-        in enumerate(
-            unique_rows
-        )
-    }
+    # =========================================
+    # Pod-local row / column indices
+    # =========================================
+    rack_data[
+        "pod_index"
+    ] = 0
 
     rack_data[
         "row_index"
-    ] = rack_data[
-        "row"
-    ].map(
-        row_index_map
-    ).astype(
-        int
-    )
+    ] = 0
 
     rack_data[
         "col_index"
     ] = 0
 
-    for row_value in unique_rows:
-        row_mask = (
-            rack_data["row"]
-            == row_value
+    unique_pods = sorted(
+        rack_data[
+            "pod"
+        ].astype(
+            str
+        ).drop_duplicates().tolist(),
+        key=axis_sort_key,
+    )
+
+    for pod_index, pod_value in enumerate(
+        unique_pods
+    ):
+        pod_mask = (
+            rack_data[
+                "pod"
+            ].astype(
+                str
+            )
+            == str(
+                pod_value
+            )
         )
 
-        row_columns = sorted(
+        rack_data.loc[
+            pod_mask,
+            "pod_index",
+        ] = int(
+            pod_index
+        )
+
+        pod_rows = sorted(
             rack_data.loc[
-                row_mask,
-                "col",
+                pod_mask,
+                "row",
             ].drop_duplicates().tolist(),
             key=axis_sort_key,
         )
 
-        col_index_map = {
+        row_index_map = {
             value: index
             for index, value
             in enumerate(
-                row_columns
+                pod_rows
             )
         }
 
         rack_data.loc[
-            row_mask,
-            "col_index",
+            pod_mask,
+            "row_index",
         ] = (
             rack_data.loc[
-                row_mask,
-                "col",
+                pod_mask,
+                "row",
             ]
             .map(
-                col_index_map
+                row_index_map
             )
             .astype(
                 int
             )
         )
 
+        for row_value in pod_rows:
+            row_mask = (
+                pod_mask
+                & (
+                    rack_data[
+                        "row"
+                    ]
+                    == row_value
+                )
+            )
+
+            row_columns = sorted(
+                rack_data.loc[
+                    row_mask,
+                    "col",
+                ].drop_duplicates().tolist(),
+                key=axis_sort_key,
+            )
+
+            col_index_map = {
+                value: index
+                for index, value
+                in enumerate(
+                    row_columns
+                )
+            }
+
+            rack_data.loc[
+                row_mask,
+                "col_index",
+            ] = (
+                rack_data.loc[
+                    row_mask,
+                    "col",
+                ]
+                .map(
+                    col_index_map
+                )
+                .astype(
+                    int
+                )
+            )
+
     rack_data[
-        "col_index"
+        [
+            "pod_index",
+            "row_index",
+            "col_index",
+        ]
     ] = rack_data[
-        "col_index"
+        [
+            "pod_index",
+            "row_index",
+            "col_index",
+        ]
     ].astype(
         int
     )
@@ -1111,6 +1172,7 @@ def rack_flow_requirements(
     output_columns = [
         "rack_id",
         "pod",
+        "pod_index",
         "row",
         "col",
         "row_index",
