@@ -1245,14 +1245,57 @@ def build_rack_network_paths(
         * float(layout.rack_pitch_m)
     )
 
+    # =========================================
+    # Pod / Row physical Y position
+    # =========================================
+    topology_mode = str(
+        layout.topology_mode
+    ).strip()
+
+    if topology_mode not in {
+        "pod_dedicated",
+        "central",
+        "in_row",
+    }:
+        raise ValueError(
+            "Unsupported topology_mode. Use "
+            "'pod_dedicated', 'central', or 'in_row'."
+        )
+
+    if topology_mode == "central":
+        if layout.pod_pitch_m <= 0:
+            raise ValueError(
+                "pod_pitch_m must be greater than 0 "
+                "for Central CDU topology."
+            )
+
+        pod_y_offset = (
+            rack_data[
+                "pod_index"
+            ].astype(float)
+            * float(
+                layout.pod_pitch_m
+            )
+        )
+
+    else:
+        # Pod-dedicated and In-row systems are
+        # treated as local hydraulic subsystems.
+        pod_y_offset = 0.0
+
     rack_data[
         "y_m"
     ] = (
-        float(layout.origin_y_m)
+        float(
+            layout.origin_y_m
+        )
+        + pod_y_offset
         + rack_data[
             "row_index"
         ].astype(float)
-        * float(layout.row_pitch_m)
+        * float(
+            layout.row_pitch_m
+        )
     )
 
     # =========================================
@@ -1314,6 +1357,7 @@ def build_rack_network_paths(
     output_columns = [
         "rack_id",
         "pod",
+        "pod_index",
         "row",
         "col",
         "row_index",
