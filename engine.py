@@ -2599,7 +2599,11 @@ def solve_rack_flow_distribution(
             segment_types
             == "rack_branch_equivalent"
         )
-
+        
+        rack_segment_membership_float = (
+            rack_segment_membership.astype(float)
+        )
+        
         # -------------------------------------
         # OEM curve range validation
         # -------------------------------------
@@ -2664,111 +2668,113 @@ def solve_rack_flow_distribution(
         # =====================================
         # Evaluate complete hydraulic state
         # for a trial rack-flow vector
+        #
+        # Performance note:
+        # topology membership is precomputed once
+        # outside this function so nonlinear solver
+        # iterations do not repeatedly scan DataFrames.
         # =====================================
         def evaluate_state(
             flow_vector,
         ):
-            flow_map = {
-                rack_id: float(
-                    flow_vector[
-                        rack_index[
-                            rack_id
-                        ]
+            flow_vector = np.asarray(
+                flow_vector,
+                dtype=float,
+            )
+
+            # ---------------------------------
+            # Rack flow vector → segment flows
+            # ---------------------------------
+            segment_flow_vector = (
+                rack_segment_membership_float.T
+                @ flow_vector
+            )
+
+            segment_velocity = np.zeros(
+                segment_count,
+                dtype=float,
+            )
+
+            segment_pipe_dp = np.zeros(
+                segment_count,
+                dtype=float,
+            )
+
+            segment_minor_dp = np.zeros(
+                segment_count,
+                dtype=float,
+            )
+
+            # Pipe friction calculation still uses
+            # the deterministic hydraulic functions,
+            # but no DataFrame iteration occurs here.
+            for segment_position in range(
+                segment_count
+            ):
+                segment_flow = float(
+                    segment_flow_vector[
+                        segment_position
                     ]
                 )
-                for rack_id in rack_ids
-            }
 
-            segment_state = {}
-
-            for segment_number, segment in (
-                pod_segments.iterrows()
-            ):
-                downstream_ids = segment[
-                    "downstream_rack_ids"
-                ]
-
-                if isinstance(
-                    downstream_ids,
-                    str,
-                ):
-                    downstream_ids = (
-                        downstream_ids,
-                    )
-
-                segment_flow = float(
-                    sum(
-                        flow_map.get(
-                            str(rack_id),
-                            0.0,
-                        )
-                        for rack_id
-                        in downstream_ids
-                    )
-                )
+                if segment_flow <= 0:
+                    continue
 
                 diameter_m = float(
-                    segment[
-                        "diameter_m"
+                    segment_diameters[
+                        segment_position
                     ]
                 )
 
                 length_m = float(
-                    segment[
-                        "length_m"
+                    segment_lengths[
+                        segment_position
                     ]
                 )
 
                 minor_k = float(
-                    segment[
-                        "minor_k"
+                    segment_minor_k[
+                        segment_position
                     ]
                 )
 
-                if segment_flow > 0:
-                    pipe_dp = _pipe_dp_kpa(
-                        segment_flow,
-                        coolant.rho_kg_m3,
-                        coolant.mu_pa_s,
-                        length_m,
-                        diameter_m,
-                        geom.roughness_m,
-                    )
-
-                    minor_dp = _minor_dp_kpa(
-                        segment_flow,
-                        coolant.rho_kg_m3,
-                        diameter_m,
-                        minor_k,
-                    )
-
-                    velocity = _velocity(
-                        segment_flow,
-                        diameter_m,
-                    )
-
-                else:
-                    pipe_dp = 0.0
-                    minor_dp = 0.0
-                    velocity = 0.0
-
-                segment_state[
-                    segment_number
-                ] = {
-                    "flow_lpm": segment_flow,
-                    "velocity_m_s": velocity,
-                    "pipe_dp_kpa": pipe_dp,
-                    "minor_dp_kpa": minor_dp,
-                    "total_dp_kpa": (
-                        pipe_dp
-                        + minor_dp
-                    ),
-                }
-
-            total_pod_flow = float(
-                sum(
-                    flow_map.values()
+                segment_pipe_dp[
+                    segment_position
+                ] = _pipe_dp_kpa(
+                    segment_flow,
+                    coolant.rho_kg_m3,
+                    coolant.mu_pa_s,
+                    length_m,
+                    diameter_m,
+                    geom.roughness_m,
                 )
+
+                segment_minor_dp[
+                    segment_position
+                ] = _minor_dp_kpa(
+                    segment_flow,
+                    coolant.rho_kg_m3,
+                    diameter_m,
+                    minor_k,
+                )
+
+                segment_velocity[
+                    segment_position
+                ] = _velocity(
+                    segment_flow,
+                    diameter_m,
+                )
+
+            segment_total_dp = (
+                segment_pipe_dp
+                + segment_minor_dp
+            )
+
+            # ---------------------------------
+            # Shared common minor loss
+            # ---------------------------------
+            total_pod_flow = float(
+                flow_vector.sum()
             )
 
             if topology_mode == "in_row":
@@ -2786,112 +2792,200 @@ def solve_rack_flow_distribution(
                     else 0.0
                 )
 
-            rack_path_state = {}
-
-            for rack_id in rack_ids:
-                common_header_dp = 0.0
-                row_header_dp = 0.0
-                branch_dp = 0.0
-
-                for segment_number, segment in (
-                    pod_segments.iterrows()
-                ):
-                    downstream_ids = segment[
-                        "downstream_rack_ids"
+            # ---------------------------------
+            # Sum segment losses belonging to
+            # every rack path using matrix ops
+            # ---------------------------------
+            if np.any(
+                common_segment_mask
+            ):
+                common_header_dp_vector = (
+                    rack_segment_membership_float[
+                        :,
+                        common_segment_mask,
                     ]
+                    @ segment_total_dp[
+                        common_segment_mask
+                    ]
+                )
 
-                    if isinstance(
-                        downstream_ids,
-                        str,
-                    ):
-                        downstream_ids = (
-                            downstream_ids,
-                        )
+            else:
+                common_header_dp_vector = np.zeros(
+                    rack_count,
+                    dtype=float,
+                )
 
-                    if rack_id not in [
-                        str(item)
-                        for item in downstream_ids
-                    ]:
-                        continue
+            if np.any(
+                row_segment_mask
+            ):
+                row_header_dp_vector = (
+                    rack_segment_membership_float[
+                        :,
+                        row_segment_mask,
+                    ]
+                    @ segment_total_dp[
+                        row_segment_mask
+                    ]
+                )
 
-                    segment_dp = float(
-                        segment_state[
-                            segment_number
-                        ][
-                            "total_dp_kpa"
-                        ]
-                    )
+            else:
+                row_header_dp_vector = np.zeros(
+                    rack_count,
+                    dtype=float,
+                )
 
-                    segment_type = str(
-                        segment[
-                            "segment_type"
-                        ]
-                    )
+            if np.any(
+                branch_segment_mask
+            ):
+                branch_dp_vector = (
+                    rack_segment_membership_float[
+                        :,
+                        branch_segment_mask,
+                    ]
+                    @ segment_total_dp[
+                        branch_segment_mask
+                    ]
+                )
 
-                    if (
-                        segment_type
-                        == "common_header"
-                    ):
-                        common_header_dp += (
-                            segment_dp
-                        )
+            else:
+                branch_dp_vector = np.zeros(
+                    rack_count,
+                    dtype=float,
+                )
 
-                    elif (
-                        segment_type
-                        == "row_header"
-                    ):
-                        row_header_dp += (
-                            segment_dp
-                        )
-
-                    elif (
-                        segment_type
-                        == "rack_branch_equivalent"
-                    ):
-                        branch_dp += (
-                            segment_dp
-                        )
-
-                rack_dp = (
+            # ---------------------------------
+            # Rack internal pressure drop
+            # ---------------------------------
+            rack_dp_vector = np.array(
+                [
                     rack_internal_dp_kpa(
                         rack_id,
-                        flow_map[
-                            rack_id
+                        flow_vector[
+                            rack_position
                         ],
                     )
-                )
+                    for rack_position, rack_id
+                    in enumerate(
+                        rack_ids
+                    )
+                ],
+                dtype=float,
+            )
 
-                total_path_dp = (
-                    common_header_dp
-                    + row_header_dp
-                    + branch_dp
-                    + shared_common_minor_dp
-                    + rack_dp
-                )
+            total_path_dp_vector = (
+                common_header_dp_vector
+                + row_header_dp_vector
+                + branch_dp_vector
+                + shared_common_minor_dp
+                + rack_dp_vector
+            )
 
-                rack_path_state[
-                    rack_id
-                ] = {
+            # ---------------------------------
+            # Build dictionaries only once per
+            # evaluated state for compatibility
+            # with the existing solver/output.
+            # ---------------------------------
+            flow_map = {
+                rack_id: float(
+                    flow_vector[
+                        rack_position
+                    ]
+                )
+                for rack_position, rack_id
+                in enumerate(
+                    rack_ids
+                )
+            }
+
+            rack_path_state = {
+                rack_id: {
                     "common_header_dp_kpa":
-                        common_header_dp,
+                        float(
+                            common_header_dp_vector[
+                                rack_position
+                            ]
+                        ),
                     "row_header_dp_kpa":
-                        row_header_dp,
+                        float(
+                            row_header_dp_vector[
+                                rack_position
+                            ]
+                        ),
                     "branch_dp_kpa":
-                        branch_dp,
+                        float(
+                            branch_dp_vector[
+                                rack_position
+                            ]
+                        ),
                     "shared_common_minor_dp_kpa":
-                        shared_common_minor_dp,
+                        float(
+                            shared_common_minor_dp
+                        ),
                     "rack_dp_kpa":
-                        rack_dp,
+                        float(
+                            rack_dp_vector[
+                                rack_position
+                            ]
+                        ),
                     "total_path_dp_kpa":
-                        total_path_dp,
+                        float(
+                            total_path_dp_vector[
+                                rack_position
+                            ]
+                        ),
                 }
+                for rack_position, rack_id
+                in enumerate(
+                    rack_ids
+                )
+            }
+
+            segment_state = {
+                segment_numbers[
+                    segment_position
+                ]: {
+                    "flow_lpm":
+                        float(
+                            segment_flow_vector[
+                                segment_position
+                            ]
+                        ),
+                    "velocity_m_s":
+                        float(
+                            segment_velocity[
+                                segment_position
+                            ]
+                        ),
+                    "pipe_dp_kpa":
+                        float(
+                            segment_pipe_dp[
+                                segment_position
+                            ]
+                        ),
+                    "minor_dp_kpa":
+                        float(
+                            segment_minor_dp[
+                                segment_position
+                            ]
+                        ),
+                    "total_dp_kpa":
+                        float(
+                            segment_total_dp[
+                                segment_position
+                            ]
+                        ),
+                }
+                for segment_position in range(
+                    segment_count
+                )
+            }
 
             return {
                 "flow_map": flow_map,
                 "segment_state": segment_state,
                 "rack_path_state": rack_path_state,
                 "total_flow_lpm": total_pod_flow,
-            }    
+            }   
         
         # =====================================
         # Initial condition
