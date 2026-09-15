@@ -3305,7 +3305,7 @@ elif phase == 2:
                 "Candidate": "C · In-row",
                 "Duty Units": row_duty_units,
                 "Standby Basis": standby_c,
-                "Installed Units": row_count + standby_c,
+                "Installed Units": row_duty_units + standby_c,
             },
         ]
     )
@@ -3396,6 +3396,21 @@ elif phase == 2:
         use_container_width=True,
     ):
         st.session_state.topology_choice = choice
+        
+        if choice.startswith("A"):
+            st.session_state.phase2_topology_mode = (
+                "pod_dedicated"
+            )
+
+        elif choice.startswith("B"):
+            st.session_state.phase2_topology_mode = (
+                "central"
+            )
+
+        else:
+            st.session_state.phase2_topology_mode = (
+                "in_row"
+            )
         st.session_state.phase2_cdu_capacity = cdu_capacity
         st.session_state.phase2_redundancy = redundancy
         st.session_state.phase2_pods = pods.copy()
