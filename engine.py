@@ -2324,26 +2324,143 @@ def solve_rack_flow_distribution(
     pod_output_records = []
 
     # =========================================
-    # Solve each Pod independently
+    # Solve each topology-defined
+    # hydraulic subsystem
     # =========================================
-    for pod_name in (
-        rack_requirements[
-            "pod"
-        ].astype(str).drop_duplicates()
+    topology_mode = str(
+        layout.topology_mode
+    ).strip()
+
+    if (
+        "hydraulic_group"
+        not in network_segments.columns
     ):
-        pod_racks = rack_requirements[
-            rack_requirements[
-                "pod"
-            ].astype(str)
-            == str(pod_name)
-        ].copy()
+        raise ValueError(
+            "Hydraulic segment table does not contain "
+            "hydraulic_group information."
+        )
+
+    hydraulic_groups = (
+        network_segments[
+            "hydraulic_group"
+        ]
+        .astype(str)
+        .drop_duplicates()
+        .tolist()
+    )
+
+    for hydraulic_group in hydraulic_groups:
 
         pod_segments = network_segments[
             network_segments[
-                "pod"
+                "hydraulic_group"
             ].astype(str)
-            == str(pod_name)
+            == str(
+                hydraulic_group
+            )
         ].copy()
+
+        # -------------------------------------
+        # Determine which racks belong to
+        # this hydraulic subsystem.
+        #
+        # Every rack has exactly one branch
+        # equivalent segment.
+        # -------------------------------------
+        branch_segments = pod_segments[
+            pod_segments[
+                "segment_type"
+            ]
+            == "rack_branch_equivalent"
+        ].copy()
+
+        group_rack_ids = []
+
+        for downstream_ids in branch_segments[
+            "downstream_rack_ids"
+        ]:
+            if isinstance(
+                downstream_ids,
+                (
+                    tuple,
+                    list,
+                    set,
+                    np.ndarray,
+                    pd.Series,
+                ),
+            ):
+                group_rack_ids.extend(
+                    [
+                        str(rack_id)
+                        for rack_id
+                        in downstream_ids
+                    ]
+                )
+
+            else:
+                group_rack_ids.append(
+                    str(
+                        downstream_ids
+                    )
+                )
+
+        group_rack_ids = list(
+            dict.fromkeys(
+                group_rack_ids
+            )
+        )
+
+        if not group_rack_ids:
+            continue
+
+        pod_racks = rack_requirements[
+            rack_requirements[
+                "rack_id"
+            ].astype(str).isin(
+                group_rack_ids
+            )
+        ].copy()
+
+        if pod_racks.empty:
+            continue
+
+        pod_racks[
+            "rack_id"
+        ] = pod_racks[
+            "rack_id"
+        ].astype(str)
+
+        pod_racks = (
+            pod_racks.sort_values(
+                [
+                    "pod",
+                    "row_index",
+                    "col_index",
+                ]
+            )
+            .reset_index(
+                drop=True
+            )
+        )
+
+        group_pods = (
+            pod_racks[
+                "pod"
+            ]
+            .astype(str)
+            .drop_duplicates()
+            .tolist()
+        )
+
+        if len(group_pods) == 1:
+            summary_pod_label = (
+                group_pods[0]
+            )
+
+        else:
+            summary_pod_label = (
+                "MULTI"
+            )
 
         rack_ids = (
             pod_racks[
@@ -2549,6 +2666,10 @@ def solve_rack_flow_distribution(
                 )
             )
 
+        if topology_mode == "in_row":
+            shared_common_minor_dp = 0.0
+
+        else:
             shared_common_minor_dp = (
                 _minor_dp_kpa(
                     total_pod_flow,
@@ -2968,8 +3089,22 @@ def solve_rack_flow_distribution(
                 {
                     "coolant":
                         coolant.name,
+
+                    "topology_mode":
+                        topology_mode,
+
+                    "hydraulic_group":
+                        str(
+                            hydraulic_group
+                        ),
+
                     "pod":
-                        str(pod_name),
+                        str(
+                            rack_row[
+                                "pod"
+                            ]
+                        ),
+
                     "rack_id":
                         rack_id,
                     "row":
@@ -3028,11 +3163,23 @@ def solve_rack_flow_distribution(
                 {
                     "coolant":
                         coolant.name,
+
+                    "topology_mode":
+                        topology_mode,
+
+                    "hydraulic_group":
+                        str(
+                            hydraulic_group
+                        ),
+
                     "pod":
-                        str(pod_name),
+                        str(
+                            segment[
+                                "pod"
+                            ]
+                        ),
+
                     "segment_id":
-                        segment[
-                            "segment_id"
                         ],
                     "segment_type":
                         segment[
@@ -3100,8 +3247,18 @@ def solve_rack_flow_distribution(
             {
                 "coolant":
                     coolant.name,
+
+                "topology_mode":
+                    topology_mode,
+
+                "hydraulic_group":
+                    str(
+                        hydraulic_group
+                    ),
+
                 "pod":
-                    str(pod_name),
+                    summary_pod_label,
+
                 "rack_count":
                     len(rack_ids),
                 "required_total_flow_lpm":
