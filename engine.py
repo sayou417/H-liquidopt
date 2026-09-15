@@ -51,6 +51,11 @@ class HydraulicNetworkLayout:
     row_pitch_m:
         Centre-to-centre spacing between rack rows.
 
+    pod_pitch_m:
+        Representative centre-to-centre spacing between Pods.
+        Used when a Central CDU topology creates a shared
+        main-header relationship between multiple Pods.
+
     origin_x_m / origin_y_m:
         Coordinate of the first rack position.
 
@@ -62,10 +67,18 @@ class HydraulicNetworkLayout:
 
     return_header_x_m:
         X-coordinate where the return header leaves each row.
+
+    topology_mode:
+        Approved Phase 2 CDU topology.
+        Supported values:
+        - pod_dedicated
+        - central
+        - in_row
     """
 
     rack_pitch_m: float = 0.8
     row_pitch_m: float = 4.0
+    pod_pitch_m: float = 12.0
 
     origin_x_m: float = 0.0
     origin_y_m: float = 0.0
@@ -74,6 +87,8 @@ class HydraulicNetworkLayout:
 
     supply_header_x_m: float = 0.0
     return_header_x_m: float = 0.0
+
+    topology_mode: str = "pod_dedicated"
 
 @dataclass
 class RackPressureCurve:
