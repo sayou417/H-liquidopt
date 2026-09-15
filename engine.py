@@ -1399,18 +1399,24 @@ def build_hydraulic_network_segments(
     layout: HydraulicNetworkLayout,
 ) -> pd.DataFrame:
     """
-    Build a rack-level hydraulic network segment table.
+    Build a topology-aware hydraulic network segment table.
 
-    Each pipe segment stores:
-    - physical length
-    - pipe diameter
-    - racks hydraulically downstream of the segment
-    - thermal required flow through the segment
-    - preliminary pressure drop at that required flow
+    Supported Phase 2 topology modes:
 
-    This function builds the network and its design-flow
-    reference state. It does not yet solve actual flow
-    distribution.
+    pod_dedicated
+        Each Pod is treated as an independent hydraulic subsystem.
+
+    central
+        All Pods share one common supply / return main.
+        Pod spacing therefore affects common-main length and losses.
+
+    in_row
+        Each Pod-Row group is treated as a local hydraulic subsystem.
+        Common-main losses are omitted in this preliminary model because
+        the CDU/feed is assumed to be located locally near the Row.
+
+    This function builds network geometry and a design-flow reference
+    state. Actual rack-flow distribution is solved separately.
     """
 
     rack_paths = build_rack_network_paths(
@@ -1423,11 +1429,25 @@ def build_hydraulic_network_segments(
     if rack_paths.empty:
         return pd.DataFrame()
 
+    topology_mode = str(
+        layout.topology_mode
+    ).strip()
+
+    if topology_mode not in {
+        "pod_dedicated",
+        "central",
+        "in_row",
+    }:
+        raise ValueError(
+            "Unsupported topology_mode. Use "
+            "'pod_dedicated', 'central', or 'in_row'."
+        )
+
     records = []
 
     # =========================================
-    # Helper: determine whether a path uses
-    # a specific one-dimensional interval
+    # Helper · Determine whether a rack path
+    # uses a one-dimensional pipe interval
     # =========================================
     def path_uses_interval(
         connection_position: float,
@@ -1464,11 +1484,12 @@ def build_hydraulic_network_segments(
         )
 
     # =========================================
-    # Helper: append one physical segment
+    # Helper · Append one physical segment
     # =========================================
     def append_segment(
         segment_id: str,
-        pod_name: str,
+        hydraulic_group: str,
+        pod_label: str,
         segment_type: str,
         side: str,
         row_value,
@@ -1538,7 +1559,8 @@ def build_hydraulic_network_segments(
         records.append(
             {
                 "segment_id": segment_id,
-                "pod": pod_name,
+                "hydraulic_group": hydraulic_group,
+                "pod": pod_label,
                 "row": row_value,
                 "segment_type": segment_type,
                 "side": side,
@@ -1591,173 +1613,322 @@ def build_hydraulic_network_segments(
         )
 
     # =========================================
-    # Build each Pod as a hydraulic subsystem
+    # Build hydraulic subsystem groups
     # =========================================
-    for pod_name in (
-        rack_paths[
-            "pod"
-        ].astype(
-            str
-        ).drop_duplicates()
-    ):
-        pod_data = rack_paths[
+    hydraulic_groups = []
+
+    if topology_mode == "pod_dedicated":
+        for pod_value in (
             rack_paths[
                 "pod"
             ].astype(
                 str
-            )
-            == str(
-                pod_name
-            )
-        ].copy()
-
-        # =====================================
-        # 1 · COMMON SUPPLY / RETURN HEADERS
-        # =====================================
-        row_y_positions = sorted(
-            pod_data[
-                "y_m"
-            ].astype(
-                float
-            ).unique().tolist()
-        )
-
-        common_y_nodes = sorted(
-            set(
-                row_y_positions
-                + [
-                    float(
-                        layout.cdu_y_m
-                    )
-                ]
-            )
-        )
-
-        for index in range(
-            len(
-                common_y_nodes
-            )
-            - 1
+            ).drop_duplicates()
         ):
-            y1 = float(
-                common_y_nodes[
-                    index
+            group_data = rack_paths[
+                rack_paths[
+                    "pod"
+                ].astype(
+                    str
+                )
+                == str(
+                    pod_value
+                )
+            ].copy()
+
+            hydraulic_groups.append(
+                (
+                    f"POD::{pod_value}",
+                    group_data,
+                )
+            )
+
+    elif topology_mode == "central":
+        hydraulic_groups.append(
+            (
+                "CENTRAL",
+                rack_paths.copy(),
+            )
+        )
+
+    else:
+        unique_row_groups = (
+            rack_paths[
+                [
+                    "pod",
+                    "row",
+                ]
+            ]
+            .drop_duplicates()
+        )
+
+        for _, group_row in (
+            unique_row_groups.iterrows()
+        ):
+            pod_value = str(
+                group_row[
+                    "pod"
                 ]
             )
 
-            y2 = float(
-                common_y_nodes[
-                    index + 1
+            row_value = group_row[
+                "row"
+            ]
+
+            group_data = rack_paths[
+                (
+                    rack_paths[
+                        "pod"
+                    ].astype(
+                        str
+                    )
+                    == pod_value
+                )
+                & (
+                    rack_paths[
+                        "row"
+                    ]
+                    == row_value
+                )
+            ].copy()
+
+            hydraulic_groups.append(
+                (
+                    (
+                        f"ROW::{pod_value}"
+                        f"::{row_value}"
+                    ),
+                    group_data,
+                )
+            )
+
+    # =========================================
+    # Build each hydraulic subsystem
+    # =========================================
+    for (
+        hydraulic_group,
+        group_data,
+    ) in hydraulic_groups:
+
+        if group_data.empty:
+            continue
+
+        # =====================================
+        # 1 · COMMON SUPPLY / RETURN MAIN
+        # =====================================
+        #
+        # In-row topology intentionally skips
+        # the common main because the preliminary
+        # model assumes local CDU/feed placement.
+        #
+        if topology_mode != "in_row":
+
+            row_y_positions = sorted(
+                group_data[
+                    "y_m"
+                ].astype(
+                    float
+                ).unique().tolist()
+            )
+
+            common_y_nodes = sorted(
+                set(
+                    row_y_positions
+                    + [
+                        float(
+                            layout.cdu_y_m
+                        )
+                    ]
+                )
+            )
+
+            for index in range(
+                len(
+                    common_y_nodes
+                )
+                - 1
+            ):
+                y1 = float(
+                    common_y_nodes[
+                        index
+                    ]
+                )
+
+                y2 = float(
+                    common_y_nodes[
+                        index + 1
+                    ]
+                )
+
+                # -----------------------------
+                # Common supply main
+                # -----------------------------
+                supply_mask = group_data[
+                    "y_m"
+                ].apply(
+                    lambda rack_y: path_uses_interval(
+                        layout.cdu_y_m,
+                        float(
+                            rack_y
+                        ),
+                        y1,
+                        y2,
+                    )
+                )
+
+                supply_downstream = group_data[
+                    supply_mask
                 ]
-            )
 
-            supply_mask = pod_data[
-                "y_m"
-            ].apply(
-                lambda rack_y: path_uses_interval(
-                    layout.cdu_y_m,
-                    float(
-                        rack_y
-                    ),
-                    y1,
-                    y2,
+                if not supply_downstream.empty:
+                    append_segment(
+                        segment_id=(
+                            f"{hydraulic_group}"
+                            f"_SUP_COMMON_{index + 1}"
+                        ),
+                        hydraulic_group=(
+                            hydraulic_group
+                        ),
+                        pod_label=(
+                            "MULTI"
+                            if topology_mode
+                            == "central"
+                            else str(
+                                group_data[
+                                    "pod"
+                                ].iloc[
+                                    0
+                                ]
+                            )
+                        ),
+                        segment_type=(
+                            "common_header"
+                        ),
+                        side="supply",
+                        row_value=None,
+                        start_x_m=float(
+                            layout.supply_header_x_m
+                        ),
+                        start_y_m=y1,
+                        end_x_m=float(
+                            layout.supply_header_x_m
+                        ),
+                        end_y_m=y2,
+                        diameter_m=float(
+                            geom.common_diameter_m
+                        ),
+                        downstream_data=(
+                            supply_downstream
+                        ),
+                    )
+
+                # -----------------------------
+                # Common return main
+                # -----------------------------
+                return_mask = group_data[
+                    "y_m"
+                ].apply(
+                    lambda rack_y: path_uses_interval(
+                        layout.cdu_y_m,
+                        float(
+                            rack_y
+                        ),
+                        y1,
+                        y2,
+                    )
                 )
-            )
 
-            supply_downstream = pod_data[
-                supply_mask
-            ]
+                return_downstream = group_data[
+                    return_mask
+                ]
 
-            if not supply_downstream.empty:
-                append_segment(
-                    segment_id=(
-                        f"{pod_name}"
-                        f"_SUP_COMMON_{index + 1}"
-                    ),
-                    pod_name=str(
-                        pod_name
-                    ),
-                    segment_type=(
-                        "common_header"
-                    ),
-                    side="supply",
-                    row_value=None,
-                    start_x_m=float(
-                        layout.supply_header_x_m
-                    ),
-                    start_y_m=y1,
-                    end_x_m=float(
-                        layout.supply_header_x_m
-                    ),
-                    end_y_m=y2,
-                    diameter_m=float(
-                        geom.common_diameter_m
-                    ),
-                    downstream_data=(
-                        supply_downstream
-                    ),
-                )
-
-            return_mask = pod_data[
-                "y_m"
-            ].apply(
-                lambda rack_y: path_uses_interval(
-                    layout.cdu_y_m,
-                    float(
-                        rack_y
-                    ),
-                    y1,
-                    y2,
-                )
-            )
-
-            return_downstream = pod_data[
-                return_mask
-            ]
-
-            if not return_downstream.empty:
-                append_segment(
-                    segment_id=(
-                        f"{pod_name}"
-                        f"_RET_COMMON_{index + 1}"
-                    ),
-                    pod_name=str(
-                        pod_name
-                    ),
-                    segment_type=(
-                        "common_header"
-                    ),
-                    side="return",
-                    row_value=None,
-                    start_x_m=float(
-                        layout.return_header_x_m
-                    ),
-                    start_y_m=y1,
-                    end_x_m=float(
-                        layout.return_header_x_m
-                    ),
-                    end_y_m=y2,
-                    diameter_m=float(
-                        geom.common_diameter_m
-                    ),
-                    downstream_data=(
-                        return_downstream
-                    ),
-                )
+                if not return_downstream.empty:
+                    append_segment(
+                        segment_id=(
+                            f"{hydraulic_group}"
+                            f"_RET_COMMON_{index + 1}"
+                        ),
+                        hydraulic_group=(
+                            hydraulic_group
+                        ),
+                        pod_label=(
+                            "MULTI"
+                            if topology_mode
+                            == "central"
+                            else str(
+                                group_data[
+                                    "pod"
+                                ].iloc[
+                                    0
+                                ]
+                            )
+                        ),
+                        segment_type=(
+                            "common_header"
+                        ),
+                        side="return",
+                        row_value=None,
+                        start_x_m=float(
+                            layout.return_header_x_m
+                        ),
+                        start_y_m=y1,
+                        end_x_m=float(
+                            layout.return_header_x_m
+                        ),
+                        end_y_m=y2,
+                        diameter_m=float(
+                            geom.common_diameter_m
+                        ),
+                        downstream_data=(
+                            return_downstream
+                        ),
+                    )
 
         # =====================================
         # 2 · ROW SUPPLY / RETURN HEADERS
         # =====================================
-        for row_value in (
-            pod_data[
-                "row"
-            ].drop_duplicates()
-        ):
-            row_data = pod_data[
-                pod_data[
-                    "row"
+        #
+        # Group by both Pod and Row so identical
+        # Row labels in different Pods never merge.
+        #
+        row_groups = (
+            group_data[
+                [
+                    "pod",
+                    "row",
                 ]
-                == row_value
+            ]
+            .drop_duplicates()
+        )
+
+        for _, row_group in (
+            row_groups.iterrows()
+        ):
+            actual_pod = str(
+                row_group[
+                    "pod"
+                ]
+            )
+
+            row_value = row_group[
+                "row"
+            ]
+
+            row_data = group_data[
+                (
+                    group_data[
+                        "pod"
+                    ].astype(
+                        str
+                    )
+                    == actual_pod
+                )
+                & (
+                    group_data[
+                        "row"
+                    ]
+                    == row_value
+                )
             ].copy()
 
             rack_x_positions = sorted(
@@ -1766,6 +1937,14 @@ def build_hydraulic_network_segments(
                 ].astype(
                     float
                 ).unique().tolist()
+            )
+
+            row_y = float(
+                row_data[
+                    "y_m"
+                ].iloc[
+                    0
+                ]
             )
 
             # -------------------------------
@@ -1820,22 +1999,18 @@ def build_hydraulic_network_segments(
                 if downstream.empty:
                     continue
 
-                row_y = float(
-                    row_data[
-                        "y_m"
-                    ].iloc[
-                        0
-                    ]
-                )
-
                 append_segment(
                     segment_id=(
-                        f"{pod_name}"
+                        f"{hydraulic_group}"
+                        f"_POD_{actual_pod}"
                         f"_ROW_{row_value}"
                         f"_SUP_{index + 1}"
                     ),
-                    pod_name=str(
-                        pod_name
+                    hydraulic_group=(
+                        hydraulic_group
+                    ),
+                    pod_label=(
+                        actual_pod
                     ),
                     segment_type=(
                         "row_header"
@@ -1906,22 +2081,18 @@ def build_hydraulic_network_segments(
                 if downstream.empty:
                     continue
 
-                row_y = float(
-                    row_data[
-                        "y_m"
-                    ].iloc[
-                        0
-                    ]
-                )
-
                 append_segment(
                     segment_id=(
-                        f"{pod_name}"
+                        f"{hydraulic_group}"
+                        f"_POD_{actual_pod}"
                         f"_ROW_{row_value}"
                         f"_RET_{index + 1}"
                     ),
-                    pod_name=str(
-                        pod_name
+                    hydraulic_group=(
+                        hydraulic_group
+                    ),
+                    pod_label=(
+                        actual_pod
                     ),
                     segment_type=(
                         "row_header"
@@ -1944,11 +2115,17 @@ def build_hydraulic_network_segments(
         # 3 · RACK BRANCH EQUIVALENT SEGMENTS
         # =====================================
         for _, rack_row in (
-            pod_data.iterrows()
+            group_data.iterrows()
         ):
             rack_id = str(
                 rack_row[
                     "rack_id"
+                ]
+            )
+
+            actual_pod = str(
+                rack_row[
+                    "pod"
                 ]
             )
 
@@ -1985,13 +2162,14 @@ def build_hydraulic_network_segments(
             records.append(
                 {
                     "segment_id": (
-                        f"{pod_name}"
+                        f"{hydraulic_group}"
                         f"_RACK_{rack_id}"
                         "_BRANCH"
                     ),
-                    "pod": str(
-                        pod_name
+                    "hydraulic_group": (
+                        hydraulic_group
                     ),
+                    "pod": actual_pod,
                     "row": rack_row[
                         "row"
                     ],
