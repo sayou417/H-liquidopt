@@ -1914,9 +1914,10 @@ with st.sidebar:
             step=0.5,
             key="_phase4_pod_pitch_m",
             help=(
-                "Central CDU topology에서 인접 Pod 중심 간 "
-                "대표 거리입니다. Pod-dedicated / In-row에서는 "
-                "공통 Main 계산에 사용하지 않습니다."
+                "Central CDU Plant에서 인접 Pod 사이의 "
+                "대표 중심 간 거리입니다. "
+                "Pod-dedicated / In-row topology에서는 "
+                "shared main 계산에 사용하지 않습니다."
             ),
         )
         
@@ -5657,6 +5658,13 @@ elif phase == 4:
             )
         )
 
+        pod_pitch_m = float(
+            st.session_state.get(
+                "_phase4_pod_pitch_m",
+                12.0,
+            )
+        )
+
         cdu_y_m = float(
             st.session_state.get(
                 "_phase4_cdu_y_m",
@@ -5671,6 +5679,12 @@ elif phase == 4:
             )
         )
 
+        phase2_topology_mode = str(
+            st.session_state.get(
+                "phase2_topology_mode",
+                "pod_dedicated",
+            )
+        )
         # -----------------------------------
         # Determine physical row span
         # -----------------------------------
@@ -5743,18 +5757,41 @@ elif phase == 4:
                 HydraulicNetworkLayout(
                     rack_pitch_m=rack_pitch_m,
                     row_pitch_m=row_pitch_m,
+                    pod_pitch_m=pod_pitch_m,
+
                     origin_x_m=0.0,
                     origin_y_m=0.0,
+
                     cdu_y_m=cdu_y_m,
+
                     supply_header_x_m=(
                         supply_header_x_m
                     ),
+
                     return_header_x_m=(
                         return_header_x_m
                     ),
+
+                    topology_mode=(
+                        phase2_topology_mode
+                    ),
                 )
             )
+            
+            topology_label_map = {
+                "pod_dedicated": "Pod-dedicated CDU",
+                "central": "Central CDU Plant",
+                "in_row": "In-row CDU Grouping",
+            }
 
+            st.info(
+                "Phase 2 Approved CDU Topology · "
+                + topology_label_map.get(
+                    phase2_topology_mode,
+                    phase2_topology_mode,
+                )
+            )
+            
             # -----------------------------------
             # Select coolant for detailed solve
             # -----------------------------------
