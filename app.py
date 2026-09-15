@@ -6074,20 +6074,20 @@ elif phase == 4:
                 "Rack별 실제 유량을 계산합니다."
             )
 
-st.caption(
-    "※ Detailed Solver는 Phase 2에서 승인된 CDU topology를 "
-    "hydraulic subsystem 구성에 반영합니다. "
-    "Pod-dedicated는 Pod별 독립 loop, Central은 여러 Pod가 "
-    "shared common main을 사용하는 통합 network, "
-    "In-row는 각 Pod-Row의 local network로 계산합니다."
-)
-
-st.caption(
-    "※ Central CDU의 Pod 간 거리는 사용자가 입력한 "
-    "Pod Pitch를 사용하는 preliminary geometry입니다. "
-    "최종 설계에서는 실제 CAD/BIM routing 및 fitting 위치로 "
-    "재검증해야 합니다."
-)
+            st.caption(
+                "※ Detailed Solver는 Phase 2에서 승인된 CDU topology를 "
+                "hydraulic subsystem 구성에 반영합니다. "
+                "Pod-dedicated는 Pod별 독립 loop, Central은 여러 Pod가 "
+                "shared common main을 사용하는 통합 network, "
+                "In-row는 각 Pod-Row의 local network로 계산합니다."
+            )
+            
+            st.caption(
+                "※ Central CDU의 Pod 간 거리는 사용자가 입력한 "
+                "Pod Pitch를 사용하는 preliminary geometry입니다. "
+                "최종 설계에서는 실제 CAD/BIM routing 및 fitting 위치로 "
+                "재검증해야 합니다."
+            )
 
     else:
         st.info(
