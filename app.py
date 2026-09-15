@@ -1908,6 +1908,19 @@ with st.sidebar:
         )
 
         st.number_input(
+            "Pod pitch (m)",
+            min_value=0.1,
+            value=12.0,
+            step=0.5,
+            key="_phase4_pod_pitch_m",
+            help=(
+                "Central CDU topology에서 인접 Pod 중심 간 "
+                "대표 거리입니다. Pod-dedicated / In-row에서는 "
+                "공통 Main 계산에 사용하지 않습니다."
+            ),
+        )
+        
+        st.number_input(
             "CDU / Common Header Y Position (m)",
             value=-2.0,
             step=0.5,
