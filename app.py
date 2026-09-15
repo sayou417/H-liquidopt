@@ -5594,6 +5594,435 @@ elif phase == 4:
             "synthetic fallback model이 사용됩니다. "
             "최종 설계 시 OEM pressure-flow curve 검증이 필요합니다."
         )
+
+    # ===================================
+    # 4C-1 · DETAILED RACK-FLOW NETWORK
+    # ===================================
+    st.divider()
+
+    st.markdown(
+        "### 4C-1 · Detailed Rack-Flow Network Analysis"
+    )
+
+    st.caption(
+        "Rack row/col 배치, Rack/Row pitch, CDU 위치, "
+        "Direct/Reverse Return 구성 및 실제 배관 저항을 이용해 "
+        "각 Rack의 Actual Flow를 비선형 연립계산합니다. "
+        "기존 4C 계산은 preliminary sizing 결과로 유지됩니다."
+    )
+
+    if st.session_state.get(
+        "_phase4_enable_network_solver",
+        False,
+    ):
+        rack_pitch_m = float(
+            st.session_state.get(
+                "_phase4_rack_pitch_m",
+                0.8,
+            )
+        )
+
+        row_pitch_m = float(
+            st.session_state.get(
+                "_phase4_row_pitch_m",
+                4.0,
+            )
+        )
+
+        cdu_y_m = float(
+            st.session_state.get(
+                "_phase4_cdu_y_m",
+                -2.0,
+            )
+        )
+
+        active_loop_type = str(
+            st.session_state.get(
+                "_phase4_loop_type",
+                "Direct Return",
+            )
+        )
+
+        # -----------------------------------
+        # Determine physical row span
+        # -----------------------------------
+        layout_source = heat_loads(
+            phase4_racks
+        )
+
+        layout_source = layout_source[
+            layout_source["liquid_cooled"]
+        ].copy()
+
+        if layout_source.empty:
+            st.warning(
+                "Detailed Network Analysis에 사용할 "
+                "liquid-cooled rack이 없습니다."
+            )
+
+        elif (
+            "row" not in layout_source.columns
+            or "col" not in layout_source.columns
+        ):
+            st.warning(
+                "Detailed Network Analysis에는 "
+                "각 Rack의 row / col 정보가 필요합니다."
+            )
+
+        else:
+            racks_per_row = (
+                layout_source
+                .groupby(
+                    [
+                        "pod",
+                        "row",
+                    ]
+                )[
+                    "rack_id"
+                ]
+                .count()
+            )
+
+            max_racks_in_row = int(
+                racks_per_row.max()
+            )
+
+            row_span_m = (
+                max(
+                    max_racks_in_row - 1,
+                    0,
+                )
+                * rack_pitch_m
+            )
+
+            # -----------------------------------
+            # Direct vs Reverse Return geometry
+            # -----------------------------------
+            supply_header_x_m = 0.0
+
+            if (
+                active_loop_type
+                == "Reverse Return / Tichelmann"
+            ):
+                return_header_x_m = (
+                    row_span_m
+                )
+
+            else:
+                return_header_x_m = 0.0
+
+            network_layout = (
+                HydraulicNetworkLayout(
+                    rack_pitch_m=rack_pitch_m,
+                    row_pitch_m=row_pitch_m,
+                    origin_x_m=0.0,
+                    origin_y_m=0.0,
+                    cdu_y_m=cdu_y_m,
+                    supply_header_x_m=(
+                        supply_header_x_m
+                    ),
+                    return_header_x_m=(
+                        return_header_x_m
+                    ),
+                )
+            )
+
+            # -----------------------------------
+            # Select coolant for detailed solve
+            # -----------------------------------
+            detailed_coolant_names = [
+                coolant.name
+                for coolant in coolants
+            ]
+
+            detailed_coolant_name = (
+                st.selectbox(
+                    "Coolant Case for Detailed Network",
+                    detailed_coolant_names,
+                    key=(
+                        "phase4_detailed_network_coolant"
+                    ),
+                )
+            )
+
+            detailed_coolant = next(
+                coolant
+                for coolant in coolants
+                if coolant.name
+                == detailed_coolant_name
+            )
+
+            # -----------------------------------
+            # Layout review
+            # -----------------------------------
+            layout_1, layout_2, layout_3, layout_4 = (
+                st.columns(4)
+            )
+
+            layout_1.metric(
+                "Loop",
+                active_loop_type,
+            )
+
+            layout_2.metric(
+                "Rack Pitch",
+                f"{rack_pitch_m:.2f} m",
+            )
+
+            layout_3.metric(
+                "Row Pitch",
+                f"{row_pitch_m:.2f} m",
+            )
+
+            layout_4.metric(
+                "Row Span",
+                f"{row_span_m:.2f} m",
+            )
+
+            st.caption(
+                "Supply header connection X = "
+                f"{supply_header_x_m:.2f} m · "
+                "Return header connection X = "
+                f"{return_header_x_m:.2f} m · "
+                "CDU/Common Header Y = "
+                f"{cdu_y_m:.2f} m"
+            )
+
+            try:
+                detailed_network = (
+                    solve_rack_flow_distribution(
+                        phase4_racks,
+                        detailed_coolant,
+                        phase4_delta_t,
+                        geom,
+                        network_layout,
+                        rack_dp_curve=(
+                            rack_dp_curve
+                        ),
+                    )
+                )
+
+                rack_network_results = (
+                    detailed_network[
+                        "rack_results"
+                    ]
+                )
+
+                segment_network_results = (
+                    detailed_network[
+                        "segment_results"
+                    ]
+                )
+
+                pod_network_summary = (
+                    detailed_network[
+                        "pod_summary"
+                    ]
+                )
+
+            except ValueError as e:
+                st.error(
+                    "Detailed Network Solver를 "
+                    f"완료할 수 없습니다: {e}"
+                )
+
+                rack_network_results = (
+                    pd.DataFrame()
+                )
+
+                segment_network_results = (
+                    pd.DataFrame()
+                )
+
+                pod_network_summary = (
+                    pd.DataFrame()
+                )
+
+            # ===================================
+            # POD-LEVEL SOLVER SUMMARY
+            # ===================================
+            if not pod_network_summary.empty:
+                st.markdown(
+                    "#### Network Solver Summary"
+                )
+
+                minimum_margin = float(
+                    pod_network_summary[
+                        "minimum_flow_margin_pct"
+                    ].min()
+                )
+
+                total_underfed = int(
+                    pod_network_summary[
+                        "underfed_rack_count"
+                    ].sum()
+                )
+
+                maximum_pump_head = float(
+                    pod_network_summary[
+                        "pump_head_basis_kpa"
+                    ].max()
+                )
+
+                total_pump_power = float(
+                    pod_network_summary[
+                        "pump_power_kw"
+                    ].sum()
+                )
+
+                net_1, net_2, net_3, net_4 = (
+                    st.columns(4)
+                )
+
+                net_1.metric(
+                    "Minimum Rack Flow Margin",
+                    f"{minimum_margin:+.1f}%",
+                )
+
+                net_2.metric(
+                    "Underfed Racks",
+                    f"{total_underfed}",
+                )
+
+                net_3.metric(
+                    "Pump Head Basis",
+                    f"{maximum_pump_head:.1f} kPa",
+                )
+
+                net_4.metric(
+                    "Pump Power",
+                    f"{total_pump_power:.2f} kW",
+                )
+
+                st.dataframe(
+                    pod_network_summary,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            # ===================================
+            # RACK-LEVEL FLOW DISTRIBUTION
+            # ===================================
+            if not rack_network_results.empty:
+                st.markdown(
+                    "#### Rack Required vs Actual Flow"
+                )
+
+                rack_display_columns = [
+                    "pod",
+                    "rack_id",
+                    "row",
+                    "col",
+                    "required_flow_lpm",
+                    "actual_flow_lpm",
+                    "flow_margin_lpm",
+                    "flow_margin_pct",
+                    "underfed",
+                    "total_path_dp_kpa",
+                    "pump_head_basis_kpa",
+                ]
+
+                rack_display_columns = [
+                    column
+                    for column
+                    in rack_display_columns
+                    if column
+                    in rack_network_results.columns
+                ]
+
+                st.dataframe(
+                    rack_network_results[
+                        rack_display_columns
+                    ].style.format(
+                        {
+                            "required_flow_lpm":
+                                "{:.1f}",
+                            "actual_flow_lpm":
+                                "{:.1f}",
+                            "flow_margin_lpm":
+                                "{:+.1f}",
+                            "flow_margin_pct":
+                                "{:+.1f}%",
+                            "total_path_dp_kpa":
+                                "{:.2f}",
+                            "pump_head_basis_kpa":
+                                "{:.2f}",
+                        }
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                underfed_results = (
+                    rack_network_results[
+                        rack_network_results[
+                            "underfed"
+                        ]
+                    ]
+                )
+
+                if underfed_results.empty:
+                    st.success(
+                        "현재 hydraulic distribution에서 "
+                        "모든 Rack이 Thermal Required Flow "
+                        "이상을 확보했습니다."
+                    )
+
+                else:
+                    worst_rack_index = (
+                        rack_network_results[
+                            "flow_margin_pct"
+                        ].idxmin()
+                    )
+
+                    worst_rack = (
+                        rack_network_results.loc[
+                            worst_rack_index
+                        ]
+                    )
+
+                    st.warning(
+                        f"{len(underfed_results)}개 Rack이 "
+                        "Thermal Required Flow 미만입니다. "
+                        "최저 Flow Margin Rack: "
+                        f"{worst_rack['rack_id']} · "
+                        f"{float(worst_rack['flow_margin_pct']):+.1f}%"
+                    )
+
+            # ===================================
+            # PIPE SEGMENT DETAIL
+            # ===================================
+            if not segment_network_results.empty:
+                with st.expander(
+                    "Detailed Pipe Segment Results"
+                ):
+                    st.dataframe(
+                        segment_network_results,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            st.caption(
+                "※ Distribution Mode는 Pod별 Total Flow를 "
+                "Thermal Required Total Flow와 동일하게 유지한 상태에서 "
+                "각 parallel Rack path의 압력손실이 동일해지도록 "
+                "Rack별 실제 유량을 계산합니다."
+            )
+
+            st.caption(
+                "※ 현재 Detailed Solver는 각 Pod를 독립 hydraulic "
+                "subsystem으로 계산합니다. Central CDU에서 여러 Pod가 "
+                "공통 배관을 공유하는 경우의 inter-Pod flow interaction은 "
+                "아직 포함하지 않습니다."
+            )
+
+    else:
+        st.info(
+            "Detailed Network Analysis를 활성화하면 "
+            "Rack별 Required Flow와 Actual Flow의 차이를 "
+            "계산할 수 있습니다."
+        )
+
     # ===================================
     # 4D · COOLANT HYDRAULIC COMPARISON
     # ===================================
