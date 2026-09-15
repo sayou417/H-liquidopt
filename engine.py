@@ -3180,7 +3180,10 @@ def solve_rack_flow_distribution(
                         ),
 
                     "segment_id":
+                        segment[
+                            "segment_id"
                         ],
+
                     "segment_type":
                         segment[
                             "segment_type"
