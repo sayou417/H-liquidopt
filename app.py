@@ -5407,6 +5407,44 @@ elif phase == 4:
             )
 
     # ===================================
+    # SAVE OEM RACK CURVE STATE
+    # FOR PHASE 5 CROSS-CHECK
+    # ===================================
+    if rack_dp_curve is not None:
+        st.session_state[
+            "phase4_rack_dp_curve_state"
+        ] = {
+            "active": True,
+            "model_type": (
+                "Engineer-verified OEM Q–ΔP curve"
+            ),
+            "verified_point_count": int(
+                rack_dp_curve.point_count
+            ),
+            "verified_flow_min_lpm": float(
+                rack_dp_curve.q_min_lpm
+            ),
+            "verified_flow_max_lpm": float(
+                rack_dp_curve.q_max_lpm
+            ),
+            "extrapolation_allowed": False,
+        }
+
+    else:
+        st.session_state[
+            "phase4_rack_dp_curve_state"
+        ] = {
+            "active": False,
+            "model_type": (
+                "Synthetic rack ΔP fallback"
+            ),
+            "verified_point_count": 0,
+            "verified_flow_min_lpm": None,
+            "verified_flow_max_lpm": None,
+            "extrapolation_allowed": False,
+        }
+
+    # ===================================
     # DETERMINISTIC HYDRAULIC CALCULATION
     # ===================================
     try:
@@ -8386,46 +8424,62 @@ elif phase == 5:
 
             "rack_dp_model": {
                 "oem_curve_active": (
-                    rack_dp_curve is not None
+                    st.session_state.get(
+                        "phase4_rack_dp_curve_state",
+                        {},
+                    ).get(
+                        "active",
+                        False,
+                    )
                 ),
                 "model_type": (
-                    "Engineer-verified OEM Q–ΔP curve"
-                    if rack_dp_curve is not None
-                    else "Synthetic rack ΔP fallback"
+                    st.session_state.get(
+                        "phase4_rack_dp_curve_state",
+                        {},
+                    ).get(
+                        "model_type",
+                        "Synthetic rack ΔP fallback",
+                    )
                 ),
                 "verified_point_count": (
-                    rack_dp_curve.point_count
-                    if rack_dp_curve is not None
-                    else 0
+                    st.session_state.get(
+                        "phase4_rack_dp_curve_state",
+                        {},
+                    ).get(
+                        "verified_point_count",
+                        0,
+                    )
                 ),
                 "verified_flow_min_lpm": (
-                    rack_dp_curve.q_min_lpm
-                    if rack_dp_curve is not None
-                    else None
+                    st.session_state.get(
+                        "phase4_rack_dp_curve_state",
+                        {},
+                    ).get(
+                        "verified_flow_min_lpm"
+                    )
                 ),
                 "verified_flow_max_lpm": (
-                    rack_dp_curve.q_max_lpm
-                    if rack_dp_curve is not None
-                    else None
+                    st.session_state.get(
+                        "phase4_rack_dp_curve_state",
+                        {},
+                    ).get(
+                        "verified_flow_max_lpm"
+                    )
                 ),
-                "extrapolation_allowed": False,
+                "extrapolation_allowed": (
+                    st.session_state.get(
+                        "phase4_rack_dp_curve_state",
+                        {},
+                    ).get(
+                        "extrapolation_allowed",
+                        False,
+                    )
+                ),
                 "selected_design_flow_lpm": (
                     calculated_rack_flow
                 ),
-                "design_flow_within_verified_range": (
-                    (
-                        rack_dp_curve.q_min_lpm
-                        <= calculated_rack_flow
-                        <= rack_dp_curve.q_max_lpm
-                    )
-                    if (
-                        rack_dp_curve is not None
-                        and calculated_rack_flow is not None
-                    )
-                    else None
-                ),
             },
-
+            
             "known_model_limitations": [
                (
                     "Rack internal pressure drop uses the "
