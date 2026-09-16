@@ -3570,8 +3570,27 @@ def solve_rack_flow_distribution(
                     ),
                 "pump_head_basis_kpa":
                     pump_head_basis_kpa,
+                
                 "pump_power_kw":
                     pump_power_kw,
+
+                "max_pressure_residual_kpa":
+                    max_pressure_residual_kpa,
+
+                "max_pressure_residual_pct":
+                    max_pressure_residual_pct,
+
+                "total_flow_residual_lpm":
+                    flow_residual_lpm,
+
+                "total_flow_residual_pct":
+                    flow_residual_pct,
+
+                "numerical_check_passed":
+                    bool(
+                        residual_check_passed
+                    ),
+
                 "solver_converged":
                     bool(
                         solution.success
