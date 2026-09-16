@@ -6664,10 +6664,13 @@ elif phase == 4:
                     return_t,
                     rack_pitch_m=rack_pitch_m,
                     row_pitch_m=row_pitch_m,
+                    pod_pitch_m=pod_pitch_m,
                     origin_x_m=0.0,
                     origin_y_m=0.0,
+                    topology_mode=(
+                        phase2_topology_mode
+                    ),
                 )
-            )
 
         except ValueError as e:
             st.error(
@@ -6777,6 +6780,41 @@ elif phase == 4:
                     ),
                 },
 
+                "layout": {
+                    "coordinate_basis": (
+                        "preliminary_rack_layout"
+                    ),
+
+                    "topology_mode": (
+                        phase2_topology_mode
+                    ),
+
+                    "rack_pitch_m": float(
+                        rack_pitch_m
+                    ),
+
+                    "row_pitch_m": float(
+                        row_pitch_m
+                    ),
+
+                    "pod_pitch_m": float(
+                        pod_pitch_m
+                    ),
+
+                    "origin_x_m": 0.0,
+
+                    "origin_y_m": 0.0,
+
+                    "coordinate_scope": (
+                        "global"
+                        if phase2_topology_mode
+                        == "central"
+                        else "local_subsystem"
+                    ),
+                },
+
+                "summary": {
+                
                 "summary": {
                     "rack_count": int(
                         len(
