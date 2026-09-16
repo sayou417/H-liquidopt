@@ -7033,6 +7033,55 @@ elif phase == 4:
             "rack_dp_kpa": rack_dp_assumption,
         }
 
+        st.session_state.phase4_network_basis = {
+            "rack_pitch_m": float(
+                st.session_state.get(
+                    "_phase4_rack_pitch_m",
+                    0.8,
+                )
+            ),
+            "row_pitch_m": float(
+                st.session_state.get(
+                    "_phase4_row_pitch_m",
+                    4.0,
+                )
+            ),
+            "pod_pitch_m": float(
+                st.session_state.get(
+                    "_phase4_pod_pitch_m",
+                    12.0,
+                )
+            ),
+            "cdu_y_m": float(
+                st.session_state.get(
+                    "_phase4_cdu_y_m",
+                    -2.0,
+                )
+            ),
+            "loop_type": str(
+                st.session_state.get(
+                    "_phase4_loop_type",
+                    "Direct Return",
+                )
+            ),
+            "balancing_margin_kpa": float(
+                st.session_state.get(
+                    "_phase4_balancing_margin_kpa",
+                    15.0,
+                )
+            ),
+            "topology_mode": str(
+                st.session_state.get(
+                    "phase2_topology_mode",
+                    "pod_dedicated",
+                )
+            ),
+        }
+
+        st.session_state.phase4_rack_dp_curve = (
+            rack_dp_curve
+        )
+        
         st.session_state.approved[4] = True
 
         st.success(
