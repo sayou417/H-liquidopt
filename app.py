@@ -73,9 +73,18 @@ def reset_downstream(from_phase: int = 1) -> None:
         st.session_state.pop("hydraulic_results", None)
 
 
-def project_report_markdown(racks, pods, ranking, names, delta_t, cdu_capacity, redundancy) -> str:
+def project_report_markdown(
+    racks,
+    pods,
+    scenario_table,
+    final_decision,
+    names,
+    delta_t,
+    cdu_capacity,
+    redundancy,
+) -> str:
     calc = heat_loads(racks)
-    best = ranking.iloc[0] if len(ranking) else None
+
     lines = [
         "# H-LiquidOpt Prototype Design Review",
         "",
@@ -94,33 +103,105 @@ def project_report_markdown(racks, pods, ranking, names, delta_t, cdu_capacity, 
         "## Engineer decisions",
         f"- Phase 1: {'Approved' if st.session_state.approved[1] else 'Pending'}",
         f"- Phase 2 topology: {st.session_state.get('topology_choice', 'Not selected')}",
-        f"- Phase 3 coolant sensitivity candidates: {', '.join(names)}",
+        f"- Phase 3 approved coolant cases: {', '.join(names)}",
         f"- Phase 4: {'Reviewed' if st.session_state.approved[4] else 'Pending'}",
         "",
         "## Pod loads",
         pods.to_markdown(index=False),
         "",
-        "## Candidate comparison",
-        ranking[["rank","coolant","total_pump_kw","worst_dp_kpa","cdu_loading_pct","balanced_score"]].to_markdown(index=False) if len(ranking) else "No candidate result.",
-        "",
+        "## Detailed Coolant x Pipe Scenario Comparison",
     ]
-    if best is not None:
+
+    if (
+        scenario_table is not None
+        and not scenario_table.empty
+    ):
+        report_columns = [
+            "coolant",
+            "Pipe Scenario",
+            "Topology",
+            "Common ID mm",
+            "Row Header ID mm",
+            "Rack Branch ID mm",
+            "Design Flow LPM",
+            "Max Pipe Velocity m/s",
+            "Worst Path DP kPa",
+            "Max Path Imbalance kPa",
+            "Pump Head Basis kPa",
+            "Total Pump kW",
+            "Worst Rack",
+        ]
+
+        report_columns = [
+            column
+            for column in report_columns
+            if column in scenario_table.columns
+        ]
+
         lines += [
-            "## Current PoC sensitivity result",
-            f"- Lowest balanced hydraulic sensitivity candidate: {best['coolant']}",
-            f"- Total pump power: {best['total_pump_kw']:.2f} kW",
-            f"- Worst calculated pressure drop: {best['worst_dp_kpa']:.1f} kPa",
+            scenario_table[
+                report_columns
+            ].to_markdown(
+                index=False
+            ),
             "",
         ]
+
+    else:
+        lines += [
+            "No detailed scenario comparison available.",
+            "",
+        ]
+
     lines += [
+        "## Engineer Preferred Scenario",
+    ]
+
+    if final_decision:
+        lines += [
+            f"- Topology: {final_decision.get('topology', 'Not selected')}",
+            f"- Coolant: {final_decision.get('coolant', 'Not selected')}",
+            f"- Pipe scenario: {final_decision.get('pipe_scenario', 'Not selected')}",
+            f"- Diameter scale: {float(final_decision.get('diameter_scale', 0.0)):.2f}",
+            f"- Common ID: {float(final_decision.get('common_id_mm', 0.0)):.1f} mm",
+            f"- Row header ID: {float(final_decision.get('row_header_id_mm', 0.0)):.1f} mm",
+            f"- Rack branch ID: {float(final_decision.get('rack_branch_id_mm', 0.0)):.1f} mm",
+            f"- Total design flow: {float(final_decision.get('design_flow_lpm', 0.0)):.1f} L/min",
+            f"- Maximum calculated pipe velocity: {float(final_decision.get('max_pipe_velocity_m_s', 0.0)):.2f} m/s",
+            f"- Worst design-path pressure drop: {float(final_decision.get('worst_dp_kpa', 0.0)):.2f} kPa",
+            f"- Maximum path imbalance: {float(final_decision.get('path_imbalance_kpa', 0.0)):.2f} kPa",
+            f"- Pump-head basis: {float(final_decision.get('pump_head_basis_kpa', 0.0)):.2f} kPa",
+            f"- Total calculated pump power: {float(final_decision.get('total_pump_kw', 0.0)):.2f} kW",
+            f"- Worst design-path rack: {final_decision.get('worst_rack', '-')}",
+            f"- Engineer note: {final_decision.get('engineer_note', '')}",
+            "",
+        ]
+
+    else:
+        lines += [
+            "No engineer preferred scenario has been saved.",
+            "",
+        ]
+
+    lines += [
+        "## Calculation basis",
+        "- Rack Thermal Required Flow is used as the rack design flow.",
+        "- Pipe-segment design flow is calculated from the sum of downstream rack design flows.",
+        "- Rack hydraulic paths are reconstructed from the preliminary network geometry.",
+        "- The worst design path is used as the pump-head sizing basis with the configured balancing margin.",
+        "- Coolant and pipe scenarios are compared without an automatic best-case ranking.",
+        "",
         "## Limitations",
         "- This prototype is not for construction, procurement, safety certification, or final equipment/coolant selection.",
-        "- Rack internal pressure drop uses a synthetic placeholder unless replaced with an OEM pressure-flow curve.",
+        "- Rack internal pressure drop uses an engineer-verified OEM pressure-flow curve when available; otherwise a synthetic fallback assumption is used.",
         "- Coolant candidates require OEM/supplier approval, material compatibility, water chemistry and freeze-condition verification.",
-        "- The heat-load map is a load-density visualization, not CFD temperature prediction.",
+        "- Detailed fitting locations, valve Cv, pump curves, balancing-device settings and final CAD/BIM routing are not fully modeled.",
+        "- The design-flow hydraulic analysis does not predict actual natural rack-flow distribution.",
+        "- Pipe-diameter sensitivity does not include project CAPEX, installation-space or material-cost optimization.",
+        "- The heat-load map is a load-density visualization, not a CFD temperature prediction.",
     ]
-    return "\n".join(lines)
 
+    return "\n".join(lines)
 
 if "racks" not in st.session_state:
     st.session_state.racks = load_default_racks()
@@ -8162,30 +8243,33 @@ elif phase == 5:
         )
 
     else:
-        selected_coolant = final_decision.get(
+                selected_coolant = final_decision.get(
             "coolant"
         )
 
-        selected_hydraulic = (
-            phase5_results[
-                phase5_results["coolant"]
-                == selected_coolant
-            ]
-            .copy()
+        liquid_rack_count = int(
+            heat_loads(
+                phase5_racks
+            )[
+                "liquid_cooled"
+            ].sum()
         )
 
-        # -----------------------------------
-        # Calculated rack-flow reference
-        # -----------------------------------
+        total_design_flow_lpm = (
+            final_decision.get(
+                "design_flow_lpm"
+            )
+        )
+
         if (
-            not selected_hydraulic.empty
-            and "rack_flow_lpm"
-            in selected_hydraulic.columns
+            total_design_flow_lpm is not None
+            and liquid_rack_count > 0
         ):
-            calculated_rack_flow = float(
-                selected_hydraulic[
-                    "rack_flow_lpm"
-                ].mean()
+            calculated_rack_flow = (
+                float(
+                    total_design_flow_lpm
+                )
+                / liquid_rack_count
             )
         else:
             calculated_rack_flow = None
@@ -8240,6 +8324,54 @@ elif phase == 5:
                 calculated_rack_flow
             ),
 
+            "selected_detailed_hydraulic_result": {
+                "coolant": (
+                    final_decision.get(
+                        "coolant"
+                    )
+                ),
+                "pipe_scenario": (
+                    final_decision.get(
+                        "pipe_scenario"
+                    )
+                ),
+                "design_flow_lpm": (
+                    final_decision.get(
+                        "design_flow_lpm"
+                    )
+                ),
+                "max_pipe_velocity_m_s": (
+                    final_decision.get(
+                        "max_pipe_velocity_m_s"
+                    )
+                ),
+                "worst_path_dp_kpa": (
+                    final_decision.get(
+                        "worst_dp_kpa"
+                    )
+                ),
+                "max_path_imbalance_kpa": (
+                    final_decision.get(
+                        "path_imbalance_kpa"
+                    )
+                ),
+                "pump_head_basis_kpa": (
+                    final_decision.get(
+                        "pump_head_basis_kpa"
+                    )
+                ),
+                "total_pump_kw": (
+                    final_decision.get(
+                        "total_pump_kw"
+                    )
+                ),
+                "worst_rack": (
+                    final_decision.get(
+                        "worst_rack"
+                    )
+                ),
+            },
+            
             "rack_dp_assumption_kpa": (
                 st.session_state.get(
                     "rack_dp"
@@ -8641,19 +8773,45 @@ elif phase == 5:
         phase5_racks
     )
 
+    if (
+        "scenario_table" in locals()
+        and scenario_table is not None
+        and not scenario_table.empty
+    ):
+        report_scenario_table = (
+            scenario_table.copy()
+        )
+    else:
+        report_scenario_table = (
+            pd.DataFrame()
+        )
+
     phase5_names = (
-        phase5_results[
+        report_scenario_table[
             "coolant"
         ]
         .dropna()
         .unique()
         .tolist()
+        if (
+            not report_scenario_table.empty
+            and "coolant"
+            in report_scenario_table.columns
+        )
+        else []
+    )
+
+    report_final_decision = (
+        st.session_state.get(
+            "final_decision"
+        )
     )
 
     report = project_report_markdown(
         phase5_racks,
         pods,
-        ranking,
+        report_scenario_table,
+        report_final_decision,
         phase5_names,
         phase5_delta_t,
         phase5_cdu_capacity,
@@ -8683,6 +8841,19 @@ elif phase == 5:
         "text/csv",
         use_container_width=True,
     )
+
+    if not report_scenario_table.empty:
+        st.download_button(
+            "Download detailed scenario comparison (.csv)",
+            report_scenario_table.to_csv(
+                index=False
+            ).encode(
+                "utf-8-sig"
+            ),
+            "H-LiquidOpt_detailed_scenarios.csv",
+            "text/csv",
+            use_container_width=True,
+        )
 
 
 st.divider()
