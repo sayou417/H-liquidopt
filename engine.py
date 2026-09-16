@@ -3195,6 +3195,81 @@ def solve_rack_flow_distribution(
                 f"Solver message: {solution.message}"
             )
 
+        # =====================================
+        # Post-solution residual validation
+        # =====================================
+        final_residuals = residual_function(
+            solution.x
+        )
+
+        pressure_residuals = (
+            final_residuals[
+                :-1
+            ]
+            * pressure_scale
+        )
+
+        flow_residual_lpm = float(
+            final_residuals[
+                -1
+            ]
+            * flow_scale
+        )
+
+        max_pressure_residual_kpa = float(
+            np.max(
+                np.abs(
+                    pressure_residuals
+                )
+            )
+        )
+
+        max_pressure_residual_pct = (
+            max_pressure_residual_kpa
+            / max(
+                float(
+                    solution.x[
+                        -1
+                    ]
+                ),
+                1e-6,
+            )
+            * 100.0
+        )
+
+        flow_residual_pct = (
+            abs(
+                flow_residual_lpm
+            )
+            / max(
+                target_total_flow,
+                1e-6,
+            )
+            * 100.0
+        )
+
+        pressure_tolerance_pct = 0.1
+        flow_tolerance_pct = 0.01
+
+        residual_check_passed = (
+            max_pressure_residual_pct
+            <= pressure_tolerance_pct
+            and flow_residual_pct
+            <= flow_tolerance_pct
+        )
+
+        if not residual_check_passed:
+            raise ValueError(
+                "Detailed hydraulic solver terminated, "
+                "but the final residual check did not pass. "
+                f"Maximum path-pressure residual = "
+                f"{max_pressure_residual_pct:.4f}% "
+                f"(limit {pressure_tolerance_pct:.2f}%), "
+                f"total-flow residual = "
+                f"{flow_residual_pct:.4f}% "
+                f"(limit {flow_tolerance_pct:.2f}%)."
+            )
+
         solved_flows = (
             solution.x[
                 :-1
