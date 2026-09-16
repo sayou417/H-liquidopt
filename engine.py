@@ -2799,9 +2799,6 @@ def solve_rack_flow_distribution(
 
         # =====================================
         # Evaluate complete hydraulic state
-
-        # =====================================
-        # Evaluate complete hydraulic state
         # for a trial rack-flow vector
         #
         # Performance note:
