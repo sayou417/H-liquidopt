@@ -6656,21 +6656,18 @@ elif phase == 4:
         )
 
         try:
-            cfd_boundary_df = (
-                build_cfd_boundary_conditions(
-                    phase4_racks,
-                    export_coolant,
-                    supply_t,
-                    return_t,
-                    rack_pitch_m=rack_pitch_m,
-                    row_pitch_m=row_pitch_m,
-                    pod_pitch_m=pod_pitch_m,
-                    origin_x_m=0.0,
-                    origin_y_m=0.0,
-                    topology_mode=(
-                        phase2_topology_mode
-                    ),
-                )
+            cfd_boundary_df = build_cfd_boundary_conditions(
+                phase4_racks,
+                export_coolant,
+                supply_t,
+                return_t,
+                rack_pitch_m=rack_pitch_m,
+                row_pitch_m=row_pitch_m,
+                pod_pitch_m=pod_pitch_m,
+                origin_x_m=0.0,
+                origin_y_m=0.0,
+                topology_mode=phase2_topology_mode,
+            )
 
         except ValueError as e:
             st.error(
