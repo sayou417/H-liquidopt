@@ -5625,19 +5625,20 @@ elif phase == 4:
         )
 
     # ===================================
-    # 4C-1 · DETAILED RACK-FLOW NETWORK
+    # 4C-1 · DETAILED DESIGN-FLOW HYDRAULICS
     # ===================================
     st.divider()
 
     st.markdown(
-        "### 4C-1 · Detailed Rack-Flow Network Analysis"
+        "### 4C-1 · Detailed Design-Flow Hydraulic Analysis"
     )
 
     st.caption(
-        "Rack row/col 배치, Rack/Row pitch, CDU 위치, "
-        "Direct/Reverse Return 구성 및 실제 배관 저항을 이용해 "
-        "각 Rack의 Actual Flow를 비선형 연립계산합니다. "
-        "기존 4C 계산은 preliminary sizing 결과로 유지됩니다."
+        "Rack별 Thermal Required Flow를 설계유량으로 사용하고, "
+        "Rack row/col 배치, Rack/Row pitch, CDU 위치 및 "
+        "Phase 2 승인 topology를 반영해 배관 segment별 유량·유속·"
+        "압력손실과 Rack별 hydraulic path를 계산합니다. "
+        "실제 자연 유량분배를 예측하는 모델은 아닙니다."
     )
 
     if st.session_state.get(
@@ -5685,6 +5686,7 @@ elif phase == 4:
                 "pod_dedicated",
             )
         )
+
         # -----------------------------------
         # Determine physical row span
         # -----------------------------------
@@ -5698,7 +5700,7 @@ elif phase == 4:
 
         if layout_source.empty:
             st.warning(
-                "Detailed Network Analysis에 사용할 "
+                "Detailed Design-Flow Analysis에 사용할 "
                 "liquid-cooled rack이 없습니다."
             )
 
@@ -5707,7 +5709,7 @@ elif phase == 4:
             or "col" not in layout_source.columns
         ):
             st.warning(
-                "Detailed Network Analysis에는 "
+                "Detailed Design-Flow Analysis에는 "
                 "각 Rack의 row / col 정보가 필요합니다."
             )
 
@@ -5777,11 +5779,14 @@ elif phase == 4:
                     ),
                 )
             )
-            
+
             topology_label_map = {
-                "pod_dedicated": "Pod-dedicated CDU",
-                "central": "Central CDU Plant",
-                "in_row": "In-row CDU Grouping",
+                "pod_dedicated":
+                    "Pod-dedicated CDU",
+                "central":
+                    "Central CDU Plant",
+                "in_row":
+                    "In-row CDU Grouping",
             }
 
             st.info(
@@ -5791,9 +5796,9 @@ elif phase == 4:
                     phase2_topology_mode,
                 )
             )
-            
+
             # -----------------------------------
-            # Select coolant for detailed solve
+            # Select coolant
             # -----------------------------------
             detailed_coolant_names = [
                 coolant.name
@@ -5887,7 +5892,7 @@ elif phase == 4:
 
             except ValueError as e:
                 st.error(
-                    "Detailed Network Solver를 "
+                    "Detailed Design-Flow Analysis를 "
                     f"완료할 수 없습니다: {e}"
                 )
 
@@ -5904,23 +5909,23 @@ elif phase == 4:
                 )
 
             # ===================================
-            # POD-LEVEL SOLVER SUMMARY
+            # HYDRAULIC SUMMARY
             # ===================================
             if not pod_network_summary.empty:
                 st.markdown(
-                    "#### Network Solver Summary"
+                    "#### Design-Flow Hydraulic Summary"
                 )
 
-                minimum_margin = float(
+                worst_path_dp = float(
                     pod_network_summary[
-                        "minimum_flow_margin_pct"
-                    ].min()
+                        "worst_path_dp_kpa"
+                    ].max()
                 )
 
-                total_underfed = int(
+                maximum_path_imbalance = float(
                     pod_network_summary[
-                        "underfed_rack_count"
-                    ].sum()
+                        "path_imbalance_kpa"
+                    ].max()
                 )
 
                 maximum_pump_head = float(
@@ -5940,13 +5945,13 @@ elif phase == 4:
                 )
 
                 net_1.metric(
-                    "Minimum Rack Flow Margin",
-                    f"{minimum_margin:+.1f}%",
+                    "Worst Path ΔP",
+                    f"{worst_path_dp:.1f} kPa",
                 )
 
                 net_2.metric(
-                    "Underfed Racks",
-                    f"{total_underfed}",
+                    "Max Path Imbalance",
+                    f"{maximum_path_imbalance:.2f} kPa",
                 )
 
                 net_3.metric(
@@ -5959,91 +5964,74 @@ elif phase == 4:
                     f"{total_pump_power:.2f} kW",
                 )
 
+                summary_display_columns = [
+                    "coolant",
+                    "topology_mode",
+                    "hydraulic_group",
+                    "pod",
+                    "rack_count",
+                    "required_total_flow_lpm",
+                    "design_total_flow_lpm",
+                    "best_path_dp_kpa",
+                    "worst_path_dp_kpa",
+                    "path_imbalance_kpa",
+                    "path_imbalance_pct",
+                    "worst_rack_id",
+                    "balancing_margin_kpa",
+                    "pump_head_basis_kpa",
+                    "pump_power_kw",
+                    "analysis_basis",
+                ]
+
+                summary_display_columns = [
+                    column
+                    for column
+                    in summary_display_columns
+                    if column
+                    in pod_network_summary.columns
+                ]
+
                 st.dataframe(
-                    pod_network_summary,
+                    pod_network_summary[
+                        summary_display_columns
+                    ].style.format(
+                        {
+                            "required_total_flow_lpm":
+                                "{:.1f}",
+                            "design_total_flow_lpm":
+                                "{:.1f}",
+                            "best_path_dp_kpa":
+                                "{:.2f}",
+                            "worst_path_dp_kpa":
+                                "{:.2f}",
+                            "path_imbalance_kpa":
+                                "{:.2f}",
+                            "path_imbalance_pct":
+                                "{:.2f}%",
+                            "balancing_margin_kpa":
+                                "{:.2f}",
+                            "pump_head_basis_kpa":
+                                "{:.2f}",
+                            "pump_power_kw":
+                                "{:.2f}",
+                        }
+                    ),
                     use_container_width=True,
                     hide_index=True,
                 )
-                
-                # ===================================
-                # NUMERICAL CONVERGENCE CHECK
-                # ===================================
-                if (
-                    "numerical_check_passed"
-                    in pod_network_summary.columns
-                ):
-                    numerical_passed = bool(
-                        pod_network_summary[
-                            "numerical_check_passed"
-                        ].all()
-                    )
 
-                    max_dp_residual_pct = float(
-                        pod_network_summary[
-                            "max_pressure_residual_pct"
-                        ].max()
-                    )
-
-                    max_flow_residual_pct = float(
-                        pod_network_summary[
-                            "total_flow_residual_pct"
-                        ].abs().max()
-                    )
-
-                    st.markdown(
-                        "#### Numerical Convergence Check"
-                    )
-
-                    check_1, check_2, check_3 = (
-                        st.columns(3)
-                    )
-
-                    check_1.metric(
-                        "Numerical Check",
-                        (
-                            "PASS"
-                            if numerical_passed
-                            else "REVIEW"
-                        ),
-                    )
-
-                    check_2.metric(
-                        "Max ΔP Residual",
-                        f"{max_dp_residual_pct:.4f}%",
-                    )
-
-                    check_3.metric(
-                        "Total Flow Residual",
-                        f"{max_flow_residual_pct:.4f}%",
-                    )
-
-                    if numerical_passed:
-                        st.success(
-                            "✓ Nonlinear hydraulic solution "
-                            "passed the PoC numerical "
-                            "residual check."
-                        )
-                    else:
-                        st.warning(
-                            "The nonlinear hydraulic solution "
-                            "requires numerical review."
-                        )
-
-                    st.caption(
-                        "PoC numerical acceptance criteria: "
-                        "maximum rack-path pressure residual "
-                        "≤ 0.10% and total-flow residual "
-                        "≤ 0.01%. These are prototype "
-                        "numerical screening criteria, "
-                        "not industry certification limits."
-                    )
+                st.success(
+                    "✓ Thermal Required Flow 기준으로 "
+                    "Rack별 design hydraulic path와 "
+                    "worst-case pump-head basis를 계산했습니다."
+                )
 
             # ===================================
-            # RACK-LEVEL FLOW DISTRIBUTION
+            # RACK-LEVEL DESIGN PATH
             # ===================================
             if not rack_network_results.empty:
                 st.markdown(
-                    "#### Rack Required vs Actual Flow"
+                    "#### Rack Design-Flow Path Analysis"
                 )
 
                 rack_display_columns = [
@@ -6052,12 +6040,14 @@ elif phase == 4:
                     "row",
                     "col",
                     "required_flow_lpm",
-                    "actual_flow_lpm",
-                    "flow_margin_lpm",
-                    "flow_margin_pct",
-                    "underfed",
+                    "design_flow_lpm",
+                    "common_header_dp_kpa",
+                    "row_header_dp_kpa",
+                    "branch_dp_kpa",
+                    "rack_dp_kpa",
                     "total_path_dp_kpa",
-                    "pump_head_basis_kpa",
+                    "head_margin_kpa",
+                    "worst_path",
                 ]
 
                 rack_display_columns = [
@@ -6075,15 +6065,19 @@ elif phase == 4:
                         {
                             "required_flow_lpm":
                                 "{:.1f}",
-                            "actual_flow_lpm":
+                            "design_flow_lpm":
                                 "{:.1f}",
-                            "flow_margin_lpm":
-                                "{:+.1f}",
-                            "flow_margin_pct":
-                                "{:+.1f}%",
+                            "common_header_dp_kpa":
+                                "{:.2f}",
+                            "row_header_dp_kpa":
+                                "{:.2f}",
+                            "branch_dp_kpa":
+                                "{:.2f}",
+                            "rack_dp_kpa":
+                                "{:.2f}",
                             "total_path_dp_kpa":
                                 "{:.2f}",
-                            "pump_head_basis_kpa":
+                            "head_margin_kpa":
                                 "{:.2f}",
                         }
                     ),
@@ -6091,40 +6085,25 @@ elif phase == 4:
                     hide_index=True,
                 )
 
-                underfed_results = (
+                worst_path_rows = (
                     rack_network_results[
                         rack_network_results[
-                            "underfed"
+                            "worst_path"
                         ]
                     ]
                 )
 
-                if underfed_results.empty:
-                    st.success(
-                        "현재 hydraulic distribution에서 "
-                        "모든 Rack이 Thermal Required Flow "
-                        "이상을 확보했습니다."
-                    )
-
-                else:
-                    worst_rack_index = (
-                        rack_network_results[
-                            "flow_margin_pct"
-                        ].idxmin()
-                    )
-
+                if not worst_path_rows.empty:
                     worst_rack = (
-                        rack_network_results.loc[
-                            worst_rack_index
+                        worst_path_rows.iloc[
+                            0
                         ]
                     )
 
-                    st.warning(
-                        f"{len(underfed_results)}개 Rack이 "
-                        "Thermal Required Flow 미만입니다. "
-                        "최저 Flow Margin Rack: "
+                    st.info(
+                        "Worst design path · Rack "
                         f"{worst_rack['rack_id']} · "
-                        f"{float(worst_rack['flow_margin_pct']):+.1f}%"
+                        f"{float(worst_rack['total_path_dp_kpa']):.2f} kPa"
                     )
 
             # ===================================
@@ -6141,20 +6120,28 @@ elif phase == 4:
                     )
 
             st.caption(
-                "※ Distribution Mode는 Pod별 Total Flow를 "
-                "Thermal Required Total Flow와 동일하게 유지한 상태에서 "
-                "각 parallel Rack path의 압력손실이 동일해지도록 "
-                "Rack별 실제 유량을 계산합니다."
+                "※ Design-Flow Mode에서는 각 Rack의 Thermal Required "
+                "Flow를 해당 Rack의 설계유량으로 사용하고, 각 배관 "
+                "segment에는 downstream Rack 설계유량의 합을 적용합니다. "
+                "따라서 본 결과는 실제 자연 유량분배 예측이 아니라 "
+                "설계유량 조건에서의 hydraulic pressure-loss 및 "
+                "pump-sizing 검토 결과입니다."
             )
 
             st.caption(
-                "※ Detailed Solver는 Phase 2에서 승인된 CDU topology를 "
+                "※ 실제 Rack별 유량분배를 해석하려면 pump curve, "
+                "valve Cv, balancing-device 설정 및 검증된 장비별 "
+                "hydraulic 특성 등 추가 정보가 필요합니다."
+            )
+
+            st.caption(
+                "※ Detailed Analysis는 Phase 2에서 승인된 CDU topology를 "
                 "hydraulic subsystem 구성에 반영합니다. "
                 "Pod-dedicated는 Pod별 독립 loop, Central은 여러 Pod가 "
                 "shared common main을 사용하는 통합 network, "
                 "In-row는 각 Pod-Row의 local network로 계산합니다."
             )
-            
+
             st.caption(
                 "※ Central CDU의 Pod 간 거리는 사용자가 입력한 "
                 "Pod Pitch를 사용하는 preliminary geometry입니다. "
@@ -6165,10 +6152,9 @@ elif phase == 4:
     else:
         st.info(
             "Detailed Network Analysis를 활성화하면 "
-            "Rack별 Required Flow와 Actual Flow의 차이를 "
-            "계산할 수 있습니다."
+            "Rack별 Thermal Required Flow를 기준으로 "
+            "배관 segment와 design hydraulic path를 계산할 수 있습니다."
         )
-
     # ===================================
     # 4D · COOLANT HYDRAULIC COMPARISON
     # ===================================
