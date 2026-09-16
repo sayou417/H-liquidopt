@@ -6042,6 +6042,7 @@ elif phase == 4:
                     "required_flow_lpm",
                     "design_flow_lpm",
                     "common_header_dp_kpa",
+                    "shared_common_minor_dp_kpa",
                     "row_header_dp_kpa",
                     "branch_dp_kpa",
                     "rack_dp_kpa",
@@ -6068,6 +6069,8 @@ elif phase == 4:
                             "design_flow_lpm":
                                 "{:.1f}",
                             "common_header_dp_kpa":
+                                "{:.2f}",
+                            "shared_common_minor_dp_kpa":
                                 "{:.2f}",
                             "row_header_dp_kpa":
                                 "{:.2f}",
