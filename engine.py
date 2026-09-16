@@ -2759,7 +2759,9 @@ def solve_rack_flow_distribution(
             rack_id: str,
             flow_lpm: float,
         ) -> float:
-            flow = float(flow_lpm)
+            flow = float(
+                flow_lpm
+            )
 
             if flow <= 0:
                 return 0.0
@@ -2772,7 +2774,13 @@ def solve_rack_flow_distribution(
                     * flow
                 )
 
-            if water_ref_flow_lpm > 0:
+            rack_reference_flow = float(
+                required_flow_map[
+                    rack_id
+                ]
+            )
+
+            if rack_reference_flow > 0:
                 return float(
                     geom.rack_dp_reference_kpa
                     * (
@@ -2781,13 +2789,16 @@ def solve_rack_flow_distribution(
                     )
                     * (
                         flow
-                        / water_ref_flow_lpm
+                        / rack_reference_flow
                     ) ** 2
                 )
 
             return float(
                 geom.rack_dp_reference_kpa
             )
+
+        # =====================================
+        # Evaluate complete hydraulic state
 
         # =====================================
         # Evaluate complete hydraulic state
