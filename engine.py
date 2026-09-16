@@ -3197,23 +3197,26 @@ def solve_rack_flow_distribution(
                 )
 
         else:
-            flow_lower_bounds = np.full(
-                len(rack_ids),
-                1e-6,
-                dtype=float,
+            # ---------------------------------
+            # Synthetic fallback guardrail
+            # ---------------------------------
+            # Without a verified OEM Q–ΔP curve,
+            # the detailed solver is only used as
+            # a preliminary distribution diagnostic.
+            #
+            # Keep the nonlinear search near each
+            # rack's thermal required flow so that
+            # mathematically valid but physically
+            # meaningless extreme-flow solutions
+            # are excluded.
+            flow_lower_bounds = (
+                required_flows
+                * 0.50
             )
 
-            flow_upper_bounds = np.full(
-                len(rack_ids),
-                max(
-                    target_total_flow,
-                    float(
-                        required_flows.max()
-                        * 5.0
-                    ),
-                    1000.0,
-                ),
-                dtype=float,
+            flow_upper_bounds = (
+                required_flows
+                * 1.50
             )
 
         lower_bounds = np.concatenate(
