@@ -3319,8 +3319,8 @@ def solve_rack_flow_distribution(
                     "flow_margin_pct":
                         flow_margin_pct,
                     "underfed":
-                        actual_flow
-                        < required_flow,
+                        flow_margin_pct
+                        < -0.5,
                     "common_header_dp_kpa":
                         path_state[
                             "common_header_dp_kpa"
@@ -3480,8 +3480,8 @@ def solve_rack_flow_distribution(
                 "underfed_rack_count":
                     int(
                         (
-                            actual_flow_array
-                            < required_flows
+                            flow_margin_pct_array
+                            < -0.5
                         ).sum()
                     ),
                 "solved_pump_head_kpa":
