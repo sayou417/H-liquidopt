@@ -7944,17 +7944,13 @@ elif phase == 5:
         )
 
         s3.metric(
-            "Worst ΔP",
-            (
-                f"{selected_scenario['Worst_Total_DP_kPa']:.1f} kPa"
-            ),
+            "Worst Path ΔP",
+                f"{selected_scenario['Worst Path DP kPa']:.1f} kPa",
         )
 
         s4.metric(
             "Pump Power",
-            (
-                f"{selected_scenario['Total_Pump_kW']:.2f} kW"
-            ),
+                f"{selected_scenario['Total Pump kW']:.2f} kW",
         )
 
         selected_scale = float(
@@ -8047,19 +8043,39 @@ elif phase == 5:
                         "Rack Branch ID mm"
                     ]
                 ),
-                "max_branch_velocity_m_s": float(
+                "max_pipe_velocity_m_s": float(
                     selected_scenario[
-                        "Max_Branch_Velocity_m_s"
+                        "Max Pipe Velocity m/s"
+                    ]
+                ),
+                "design_flow_lpm": float(
+                    selected_scenario[
+                        "Design Flow LPM"
                     ]
                 ),
                 "worst_dp_kpa": float(
                     selected_scenario[
-                        "Worst_Total_DP_kPa"
+                        "Worst Path DP kPa"
+                    ]
+                ),
+                "path_imbalance_kpa": float(
+                    selected_scenario[
+                        "Max Path Imbalance kPa"
+                    ]
+                ),
+                "pump_head_basis_kpa": float(
+                    selected_scenario[
+                        "Pump Head Basis kPa"
                     ]
                 ),
                 "total_pump_kw": float(
                     selected_scenario[
-                        "Total_Pump_kW"
+                        "Total Pump kW"
+                    ]
+                ),
+                "worst_rack": str(
+                    selected_scenario[
+                        "Worst Rack"
                     ]
                 ),
                 "engineer_note": final_note,
