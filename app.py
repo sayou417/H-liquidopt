@@ -8243,7 +8243,7 @@ elif phase == 5:
         )
 
     else:
-                selected_coolant = final_decision.get(
+        selected_coolant = final_decision.get(
             "coolant"
         )
 
