@@ -6656,17 +6656,45 @@ elif phase == 4:
         )
 
         try:
+            cfd_rack_pitch_m = float(
+                st.session_state.get(
+                    "_phase4_rack_pitch_m",
+                    0.8,
+                )
+            )
+
+            cfd_row_pitch_m = float(
+                st.session_state.get(
+                    "_phase4_row_pitch_m",
+                    4.0,
+                )
+            )
+
+            cfd_pod_pitch_m = float(
+                st.session_state.get(
+                    "_phase4_pod_pitch_m",
+                    12.0,
+                )
+            )
+
+            cfd_topology_mode = str(
+                st.session_state.get(
+                    "phase2_topology_mode",
+                    "pod_dedicated",
+                )
+            )
+
             cfd_boundary_df = build_cfd_boundary_conditions(
                 phase4_racks,
                 export_coolant,
                 supply_t,
                 return_t,
-                rack_pitch_m=rack_pitch_m,
-                row_pitch_m=row_pitch_m,
-                pod_pitch_m=pod_pitch_m,
+                rack_pitch_m=cfd_rack_pitch_m,
+                row_pitch_m=cfd_row_pitch_m,
+                pod_pitch_m=cfd_pod_pitch_m,
                 origin_x_m=0.0,
                 origin_y_m=0.0,
-                topology_mode=phase2_topology_mode,
+                topology_mode=cfd_topology_mode,
             )
 
         except ValueError as e:
@@ -6783,19 +6811,19 @@ elif phase == 4:
                     ),
 
                     "topology_mode": (
-                        phase2_topology_mode
+                        cfd_topology_mode
                     ),
 
-                    "rack_pitch_m": float(
-                        rack_pitch_m
+                    "rack_pitch_m": (
+                        cfd_rack_pitch_m
                     ),
 
-                    "row_pitch_m": float(
-                        row_pitch_m
+                    "row_pitch_m": (
+                        cfd_row_pitch_m
                     ),
 
-                    "pod_pitch_m": float(
-                        pod_pitch_m
+                    "pod_pitch_m": (
+                        cfd_pod_pitch_m
                     ),
 
                     "origin_x_m": 0.0,
@@ -6804,7 +6832,7 @@ elif phase == 4:
 
                     "coordinate_scope": (
                         "global"
-                        if phase2_topology_mode
+                        if cfd_topology_mode
                         == "central"
                         else "local_subsystem"
                     ),
