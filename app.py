@@ -5965,6 +5965,79 @@ elif phase == 4:
                     hide_index=True,
                 )
                 
+                # ===================================
+                # NUMERICAL CONVERGENCE CHECK
+                # ===================================
+                if (
+                    "numerical_check_passed"
+                    in pod_network_summary.columns
+                ):
+                    numerical_passed = bool(
+                        pod_network_summary[
+                            "numerical_check_passed"
+                        ].all()
+                    )
+
+                    max_dp_residual_pct = float(
+                        pod_network_summary[
+                            "max_pressure_residual_pct"
+                        ].max()
+                    )
+
+                    max_flow_residual_pct = float(
+                        pod_network_summary[
+                            "total_flow_residual_pct"
+                        ].abs().max()
+                    )
+
+                    st.markdown(
+                        "#### Numerical Convergence Check"
+                    )
+
+                    check_1, check_2, check_3 = (
+                        st.columns(3)
+                    )
+
+                    check_1.metric(
+                        "Numerical Check",
+                        (
+                            "PASS"
+                            if numerical_passed
+                            else "REVIEW"
+                        ),
+                    )
+
+                    check_2.metric(
+                        "Max ΔP Residual",
+                        f"{max_dp_residual_pct:.4f}%",
+                    )
+
+                    check_3.metric(
+                        "Total Flow Residual",
+                        f"{max_flow_residual_pct:.4f}%",
+                    )
+
+                    if numerical_passed:
+                        st.success(
+                            "✓ Nonlinear hydraulic solution "
+                            "passed the PoC numerical "
+                            "residual check."
+                        )
+                    else:
+                        st.warning(
+                            "The nonlinear hydraulic solution "
+                            "requires numerical review."
+                        )
+
+                    st.caption(
+                        "PoC numerical acceptance criteria: "
+                        "maximum rack-path pressure residual "
+                        "≤ 0.10% and total-flow residual "
+                        "≤ 0.01%. These are prototype "
+                        "numerical screening criteria, "
+                        "not industry certification limits."
+                    )
+
             # ===================================
             # RACK-LEVEL FLOW DISTRIBUTION
             # ===================================
