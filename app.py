@@ -8432,6 +8432,7 @@ elif phase == 5:
                         False,
                     )
                 ),
+
                 "model_type": (
                     st.session_state.get(
                         "phase4_rack_dp_curve_state",
@@ -8441,6 +8442,7 @@ elif phase == 5:
                         "Synthetic rack ΔP fallback",
                     )
                 ),
+
                 "verified_point_count": (
                     st.session_state.get(
                         "phase4_rack_dp_curve_state",
@@ -8450,6 +8452,7 @@ elif phase == 5:
                         0,
                     )
                 ),
+
                 "verified_flow_min_lpm": (
                     st.session_state.get(
                         "phase4_rack_dp_curve_state",
@@ -8458,6 +8461,7 @@ elif phase == 5:
                         "verified_flow_min_lpm"
                     )
                 ),
+
                 "verified_flow_max_lpm": (
                     st.session_state.get(
                         "phase4_rack_dp_curve_state",
@@ -8466,6 +8470,7 @@ elif phase == 5:
                         "verified_flow_max_lpm"
                     )
                 ),
+
                 "extrapolation_allowed": (
                     st.session_state.get(
                         "phase4_rack_dp_curve_state",
@@ -8475,8 +8480,53 @@ elif phase == 5:
                         False,
                     )
                 ),
+
                 "selected_design_flow_lpm": (
                     calculated_rack_flow
+                ),
+
+                "design_flow_within_verified_range": (
+                    (
+                        st.session_state.get(
+                            "phase4_rack_dp_curve_state",
+                            {},
+                        ).get(
+                            "verified_flow_min_lpm"
+                        )
+                        <= calculated_rack_flow
+                        <= st.session_state.get(
+                            "phase4_rack_dp_curve_state",
+                            {},
+                        ).get(
+                            "verified_flow_max_lpm"
+                        )
+                    )
+                    if (
+                        st.session_state.get(
+                            "phase4_rack_dp_curve_state",
+                            {},
+                        ).get(
+                            "active",
+                            False,
+                        )
+                        and calculated_rack_flow
+                        is not None
+                        and st.session_state.get(
+                            "phase4_rack_dp_curve_state",
+                            {},
+                        ).get(
+                            "verified_flow_min_lpm"
+                        )
+                        is not None
+                        and st.session_state.get(
+                            "phase4_rack_dp_curve_state",
+                            {},
+                        ).get(
+                            "verified_flow_max_lpm"
+                        )
+                        is not None
+                    )
+                    else None
                 ),
             },
             
