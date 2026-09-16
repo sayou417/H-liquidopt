@@ -622,8 +622,10 @@ def build_cfd_boundary_conditions(
     return_temp_c: float,
     rack_pitch_m: float | None = None,
     row_pitch_m: float | None = None,
+    pod_pitch_m: float = 12.0,
     origin_x_m: float = 0.0,
     origin_y_m: float = 0.0,
+    topology_mode: str = "pod_dedicated",
 ) -> pd.DataFrame:
     """
     Build rack-level boundary-condition data for
@@ -712,7 +714,7 @@ def build_cfd_boundary_conditions(
         * 1000.0
     )
 
-    # =========================================
+        # =========================================
     # Optional layout coordinate generation
     # =========================================
     coordinate_columns = []
@@ -740,6 +742,10 @@ def build_cfd_boundary_conditions(
             row_pitch_m
         )
 
+        pod_pitch = float(
+            pod_pitch_m
+        )
+
         if rack_pitch <= 0:
             raise ValueError(
                 "Rack pitch must be greater than 0 m."
@@ -750,6 +756,11 @@ def build_cfd_boundary_conditions(
                 "Row pitch must be greater than 0 m."
             )
 
+        if pod_pitch <= 0:
+            raise ValueError(
+                "Pod pitch must be greater than 0 m."
+            )
+
         if (
             "row" not in rack_data.columns
             or "col" not in rack_data.columns
@@ -757,6 +768,24 @@ def build_cfd_boundary_conditions(
             raise ValueError(
                 "Rack row/col data are required "
                 "to generate x/y coordinates."
+            )
+
+        if "pod" not in rack_data.columns:
+            raise ValueError(
+                "Rack pod data are required "
+                "to generate topology-aware coordinates."
+            )
+
+        valid_topologies = {
+            "pod_dedicated",
+            "central",
+            "in_row",
+        }
+
+        if topology_mode not in valid_topologies:
+            raise ValueError(
+                "Unsupported topology_mode for CFD "
+                f"coordinate generation: {topology_mode}"
             )
 
         def axis_sort_key(
@@ -776,61 +805,156 @@ def build_cfd_boundary_conditions(
                     str(value),
                 )
 
-        unique_rows = sorted(
+        unique_pods = sorted(
             rack_data[
-                "row"
+                "pod"
             ].drop_duplicates().tolist(),
             key=axis_sort_key,
         )
 
-        unique_cols = sorted(
-            rack_data[
-                "col"
-            ].drop_duplicates().tolist(),
-            key=axis_sort_key,
+        pod_index_map = {
+            value: index
+            for index, value
+            in enumerate(
+                unique_pods
+            )
+        }
+
+        rack_data[
+            "pod_index"
+        ] = rack_data[
+            "pod"
+        ].map(
+            pod_index_map
+        ).astype(
+            int
         )
 
-        row_index_map = {
-            value: index
-            for index, value
-            in enumerate(
-                unique_rows
-            )
-        }
+        rack_data[
+            "row_index"
+        ] = 0
 
-        col_index_map = {
-            value: index
-            for index, value
-            in enumerate(
-                unique_cols
+        rack_data[
+            "col_index"
+        ] = 0
+
+        for pod_value in unique_pods:
+            pod_mask = (
+                rack_data[
+                    "pod"
+                ]
+                == pod_value
             )
-        }
+
+            pod_rows = sorted(
+                rack_data.loc[
+                    pod_mask,
+                    "row",
+                ].drop_duplicates().tolist(),
+                key=axis_sort_key,
+            )
+
+            pod_cols = sorted(
+                rack_data.loc[
+                    pod_mask,
+                    "col",
+                ].drop_duplicates().tolist(),
+                key=axis_sort_key,
+            )
+
+            row_index_map = {
+                value: index
+                for index, value
+                in enumerate(
+                    pod_rows
+                )
+            }
+
+            col_index_map = {
+                value: index
+                for index, value
+                in enumerate(
+                    pod_cols
+                )
+            }
+
+            rack_data.loc[
+                pod_mask,
+                "row_index",
+            ] = (
+                rack_data.loc[
+                    pod_mask,
+                    "row",
+                ]
+                .map(
+                    row_index_map
+                )
+                .astype(
+                    int
+                )
+            )
+
+            rack_data.loc[
+                pod_mask,
+                "col_index",
+            ] = (
+                rack_data.loc[
+                    pod_mask,
+                    "col",
+                ]
+                .map(
+                    col_index_map
+                )
+                .astype(
+                    int
+                )
+            )
 
         rack_data[
             "x_m"
-        ] = rack_data[
-            "col"
-        ].map(
-            col_index_map
-        ).astype(
-            float
-        ) * rack_pitch + float(
-            origin_x_m
+        ] = (
+            float(
+                origin_x_m
+            )
+            + rack_data[
+                "col_index"
+            ].astype(
+                float
+            )
+            * rack_pitch
         )
+
+        if topology_mode == "central":
+            pod_y_offset = (
+                rack_data[
+                    "pod_index"
+                ].astype(
+                    float
+                )
+                * pod_pitch
+            )
+        else:
+            pod_y_offset = 0.0
 
         rack_data[
             "y_m"
-        ] = rack_data[
-            "row"
-        ].map(
-            row_index_map
-        ).astype(
-            float
-        ) * row_pitch + float(
-            origin_y_m
+        ] = (
+            float(
+                origin_y_m
+            )
+            + pod_y_offset
+            + rack_data[
+                "row_index"
+            ].astype(
+                float
+            )
+            * row_pitch
         )
 
         coordinate_columns = [
+            "pod_index",
+            "row_index",
+            "col_index",
             "x_m",
             "y_m",
         ]
