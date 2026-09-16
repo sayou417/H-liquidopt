@@ -7151,6 +7151,147 @@ elif phase == 5:
     )
 
     # ===================================
+    # APPROVED PHASE 4 NETWORK BASIS
+    # ===================================
+    phase5_geometry = (
+        st.session_state.get(
+            "phase4_geometry"
+        )
+    )
+
+    phase5_network_basis = (
+        st.session_state.get(
+            "phase4_network_basis"
+        )
+    )
+
+    phase5_rack_dp_curve = (
+        st.session_state.get(
+            "phase4_rack_dp_curve"
+        )
+    )
+
+    if (
+        phase5_geometry is None
+        or phase5_network_basis is None
+    ):
+        st.error(
+            "승인된 Phase 4 Detailed Network Basis가 없습니다. "
+            "Phase 4에서 Calculation Review를 다시 승인해주세요."
+        )
+        st.stop()
+
+    phase5_layout_source = heat_loads(
+        phase5_racks
+    )
+
+    phase5_layout_source = (
+        phase5_layout_source[
+            phase5_layout_source[
+                "liquid_cooled"
+            ]
+        ].copy()
+    )
+
+    if phase5_layout_source.empty:
+        st.error(
+            "Detailed Scenario Comparison에 사용할 "
+            "liquid-cooled rack이 없습니다."
+        )
+        st.stop()
+
+    if (
+        "row" not in phase5_layout_source.columns
+        or "col" not in phase5_layout_source.columns
+    ):
+        st.error(
+            "Detailed Scenario Comparison에는 "
+            "Rack row / col 정보가 필요합니다."
+        )
+        st.stop()
+
+    phase5_racks_per_row = (
+        phase5_layout_source
+        .groupby(
+            [
+                "pod",
+                "row",
+            ]
+        )[
+            "rack_id"
+        ]
+        .count()
+    )
+
+    phase5_max_racks_in_row = int(
+        phase5_racks_per_row.max()
+    )
+
+    phase5_row_span_m = (
+        max(
+            phase5_max_racks_in_row - 1,
+            0,
+        )
+        * float(
+            phase5_network_basis[
+                "rack_pitch_m"
+            ]
+        )
+    )
+
+    phase5_supply_header_x_m = 0.0
+
+    if (
+        phase5_network_basis[
+            "loop_type"
+        ]
+        == "Reverse Return / Tichelmann"
+    ):
+        phase5_return_header_x_m = (
+            phase5_row_span_m
+        )
+    else:
+        phase5_return_header_x_m = 0.0
+
+    phase5_network_layout = (
+        HydraulicNetworkLayout(
+            rack_pitch_m=float(
+                phase5_network_basis[
+                    "rack_pitch_m"
+                ]
+            ),
+            row_pitch_m=float(
+                phase5_network_basis[
+                    "row_pitch_m"
+                ]
+            ),
+            pod_pitch_m=float(
+                phase5_network_basis[
+                    "pod_pitch_m"
+                ]
+            ),
+            origin_x_m=0.0,
+            origin_y_m=0.0,
+            cdu_y_m=float(
+                phase5_network_basis[
+                    "cdu_y_m"
+                ]
+            ),
+            supply_header_x_m=(
+                phase5_supply_header_x_m
+            ),
+            return_header_x_m=(
+                phase5_return_header_x_m
+            ),
+            topology_mode=str(
+                phase5_network_basis[
+                    "topology_mode"
+                ]
+            ),
+        )
+    )
+    
+    # ===================================
     # 5A · APPROVED DESIGN BASIS
     # ===================================
     st.markdown(
@@ -7183,56 +7324,388 @@ elif phase == 5:
     )
 
     # ===================================
-    # 5B · COOLANT × PIPE SCENARIO COMPARISON
+    # 5B · DETAILED COOLANT × PIPE COMPARISON
     # ===================================
     st.divider()
 
     st.markdown(
-        "### 5B · Coolant × Pipe Scenario Comparison"
+        "### 5B · Detailed Coolant × Pipe Scenario Comparison"
     )
 
     st.caption(
-        "Phase 4에서 승인된 coolant별 hydraulic 결과와 "
-        "Pipe Diameter Sensitivity를 통합하여 후속 상세설계 후보를 비교합니다."
+        "Phase 4에서 생성된 Pipe Diameter Sensitivity 후보를 "
+        "승인된 Rack-level Design-Flow Hydraulic Network에 다시 적용하여 "
+        "Coolant × Pipe 조합의 상세 hydraulic 영향을 비교합니다."
     )
 
-    # Keep legacy coolant ranking for report/export compatibility
-    ranking = candidate_score_table(
-        phase5_results,
-        phase5_cdu_capacity,
-    )
-
-    pipe_sensitivity = st.session_state.get(
-        "phase4_pipe_sensitivity"
+    pipe_sensitivity = (
+        st.session_state.get(
+            "phase4_pipe_sensitivity"
+        )
     )
 
     if (
         pipe_sensitivity is not None
         and not pipe_sensitivity.empty
     ):
-        scenario_table = (
-            pipe_sensitivity.copy()
-        )
-
-        scenario_table = (
-            scenario_table.sort_values(
+        scenario_basis = (
+            pipe_sensitivity[
                 [
                     "coolant",
+                    "Pipe Scenario",
                     "Diameter Scale",
+                    "Common ID mm",
+                    "Row Header ID mm",
+                    "Rack Branch ID mm",
+                ]
+            ]
+            .drop_duplicates()
+            .copy()
+        )
+
+        detailed_scenario_rows = []
+
+        for _, scenario in scenario_basis.iterrows():
+
+            scenario_coolant_name = str(
+                scenario[
+                    "coolant"
                 ]
             )
+
+            matching_coolants = [
+                coolant
+                for coolant in coolants
+                if coolant.name
+                == scenario_coolant_name
+            ]
+
+            if not matching_coolants:
+                continue
+
+            scenario_coolant = (
+                matching_coolants[0]
+            )
+
+            scenario_geom = HydraulicGeometry(
+                common_length_m=float(
+                    phase5_geometry[
+                        "common_l"
+                    ]
+                ),
+                common_diameter_m=(
+                    float(
+                        scenario[
+                            "Common ID mm"
+                        ]
+                    )
+                    / 1000.0
+                ),
+                row_length_m=float(
+                    phase5_geometry[
+                        "row_l"
+                    ]
+                ),
+                row_diameter_m=(
+                    float(
+                        scenario[
+                            "Row Header ID mm"
+                        ]
+                    )
+                    / 1000.0
+                ),
+                branch_length_m=float(
+                    phase5_geometry[
+                        "branch_l"
+                    ]
+                ),
+                branch_diameter_m=(
+                    float(
+                        scenario[
+                            "Rack Branch ID mm"
+                        ]
+                    )
+                    / 1000.0
+                ),
+                rack_dp_reference_kpa=float(
+                    phase5_geometry[
+                        "rack_dp_kpa"
+                    ]
+                ),
+                loop_type=str(
+                    phase5_network_basis[
+                        "loop_type"
+                    ]
+                ),
+                balancing_margin_kpa=float(
+                    phase5_network_basis[
+                        "balancing_margin_kpa"
+                    ]
+                ),
+            )
+
+            try:
+                scenario_network = (
+                    solve_rack_flow_distribution(
+                        phase5_racks,
+                        scenario_coolant,
+                        phase5_delta_t,
+                        scenario_geom,
+                        phase5_network_layout,
+                        rack_dp_curve=(
+                            phase5_rack_dp_curve
+                        ),
+                    )
+                )
+
+                scenario_rack_results = (
+                    scenario_network[
+                        "rack_results"
+                    ]
+                )
+
+                scenario_summary = (
+                    scenario_network[
+                        "pod_summary"
+                    ]
+                )
+
+                scenario_segments = (
+                    scenario_network[
+                        "segment_results"
+                    ]
+                )
+
+            except ValueError as e:
+                st.warning(
+                    f"{scenario_coolant_name} · "
+                    f"{scenario['Pipe Scenario']} 계산 제외: {e}"
+                )
+                continue
+
+            if scenario_summary.empty:
+                continue
+
+            worst_path_dp = float(
+                scenario_summary[
+                    "worst_path_dp_kpa"
+                ].max()
+            )
+
+            max_path_imbalance = float(
+                scenario_summary[
+                    "path_imbalance_kpa"
+                ].max()
+            )
+
+            pump_head_basis = float(
+                scenario_summary[
+                    "pump_head_basis_kpa"
+                ].max()
+            )
+
+            total_pump_power = float(
+                scenario_summary[
+                    "pump_power_kw"
+                ].sum()
+            )
+
+            total_design_flow = float(
+                scenario_summary[
+                    "design_total_flow_lpm"
+                ].sum()
+            )
+
+            if (
+                not scenario_segments.empty
+                and "velocity_m_s"
+                in scenario_segments.columns
+            ):
+                max_pipe_velocity = float(
+                    scenario_segments[
+                        "velocity_m_s"
+                    ].max()
+                )
+            else:
+                max_pipe_velocity = float(
+                    "nan"
+                )
+
+            if (
+                not scenario_rack_results.empty
+                and "worst_path"
+                in scenario_rack_results.columns
+            ):
+                worst_rack_rows = (
+                    scenario_rack_results[
+                        scenario_rack_results[
+                            "worst_path"
+                        ]
+                    ]
+                )
+
+                if not worst_rack_rows.empty:
+                    worst_rack_id = str(
+                        worst_rack_rows.iloc[
+                            0
+                        ][
+                            "rack_id"
+                        ]
+                    )
+                else:
+                    worst_rack_id = "-"
+            else:
+                worst_rack_id = "-"
+
+            detailed_scenario_rows.append(
+                {
+                    "coolant": (
+                        scenario_coolant_name
+                    ),
+                    "Pipe Scenario": (
+                        scenario[
+                            "Pipe Scenario"
+                        ]
+                    ),
+                    "Diameter Scale": float(
+                        scenario[
+                            "Diameter Scale"
+                        ]
+                    ),
+                    "Topology": str(
+                        phase5_network_basis[
+                            "topology_mode"
+                        ]
+                    ),
+                    "Common ID mm": float(
+                        scenario[
+                            "Common ID mm"
+                        ]
+                    ),
+                    "Row Header ID mm": float(
+                        scenario[
+                            "Row Header ID mm"
+                        ]
+                    ),
+                    "Rack Branch ID mm": float(
+                        scenario[
+                            "Rack Branch ID mm"
+                        ]
+                    ),
+                    "Design Flow LPM": (
+                        total_design_flow
+                    ),
+                    "Max Pipe Velocity m/s": (
+                        max_pipe_velocity
+                    ),
+                    "Worst Path DP kPa": (
+                        worst_path_dp
+                    ),
+                    "Max Path Imbalance kPa": (
+                        max_path_imbalance
+                    ),
+                    "Pump Head Basis kPa": (
+                        pump_head_basis
+                    ),
+                    "Total Pump kW": (
+                        total_pump_power
+                    ),
+                    "Worst Rack": (
+                        worst_rack_id
+                    ),
+                }
+            )
+
+        detailed_scenario_table = (
+            pd.DataFrame(
+                detailed_scenario_rows
+            )
+        )
+
+        if detailed_scenario_table.empty:
+            st.error(
+                "Detailed Coolant × Pipe Scenario 결과를 "
+                "생성할 수 없습니다."
+            )
+            st.stop()
+
+        current_reference = (
+            detailed_scenario_table[
+                detailed_scenario_table[
+                    "Diameter Scale"
+                ] == 1.0
+            ][
+                [
+                    "coolant",
+                    "Worst Path DP kPa",
+                    "Total Pump kW",
+                ]
+            ]
+            .rename(
+                columns={
+                    "Worst Path DP kPa":
+                        "Current Detailed DP kPa",
+                    "Total Pump kW":
+                        "Current Detailed Pump kW",
+                }
+            )
+        )
+
+        detailed_scenario_table = (
+            detailed_scenario_table.merge(
+                current_reference,
+                on="coolant",
+                how="left",
+            )
+        )
+
+        detailed_scenario_table[
+            "DP vs Current %"
+        ] = (
+            (
+                detailed_scenario_table[
+                    "Worst Path DP kPa"
+                ]
+                / detailed_scenario_table[
+                    "Current Detailed DP kPa"
+                ]
+            )
+            - 1.0
+        ) * 100.0
+
+        detailed_scenario_table[
+            "Pump vs Current %"
+        ] = (
+            (
+                detailed_scenario_table[
+                    "Total Pump kW"
+                ]
+                / detailed_scenario_table[
+                    "Current Detailed Pump kW"
+                ]
+            )
+            - 1.0
+        ) * 100.0
+
+        scenario_table = (
+            detailed_scenario_table.copy()
         )
 
         scenario_display_cols = [
             "coolant",
             "Pipe Scenario",
+            "Topology",
             "Common ID mm",
             "Row Header ID mm",
             "Rack Branch ID mm",
-            "Max_Branch_Velocity_m_s",
-            "Worst_Total_DP_kPa",
-            "Total_Pump_kW",
-            "ΔP vs Current %",
+            "Design Flow LPM",
+            "Max Pipe Velocity m/s",
+            "Worst Path DP kPa",
+            "Max Path Imbalance kPa",
+            "Pump Head Basis kPa",
+            "Total Pump kW",
+            "Worst Rack",
+            "DP vs Current %",
             "Pump vs Current %",
         ]
 
@@ -7244,10 +7717,13 @@ elif phase == 5:
                     "Common ID mm": "{:.1f}",
                     "Row Header ID mm": "{:.1f}",
                     "Rack Branch ID mm": "{:.1f}",
-                    "Max_Branch_Velocity_m_s": "{:.2f}",
-                    "Worst_Total_DP_kPa": "{:.1f}",
-                    "Total_Pump_kW": "{:.2f}",
-                    "ΔP vs Current %": "{:+.1f}%",
+                    "Design Flow LPM": "{:.1f}",
+                    "Max Pipe Velocity m/s": "{:.2f}",
+                    "Worst Path DP kPa": "{:.2f}",
+                    "Max Path Imbalance kPa": "{:.2f}",
+                    "Pump Head Basis kPa": "{:.2f}",
+                    "Total Pump kW": "{:.2f}",
+                    "DP vs Current %": "{:+.1f}%",
                     "Pump vs Current %": "{:+.1f}%",
                 }
             ),
@@ -7255,23 +7731,24 @@ elif phase == 5:
             hide_index=True,
         )
 
-        # -----------------------------------
-        # Visual trade-off
-        # -----------------------------------
         fig_final_tradeoff = px.scatter(
             scenario_table,
-            x="Worst_Total_DP_kPa",
-            y="Total_Pump_kW",
+            x="Worst Path DP kPa",
+            y="Total Pump kW",
             color="coolant",
             symbol="Pipe Scenario",
             hover_data=[
+                "Topology",
                 "Common ID mm",
                 "Row Header ID mm",
                 "Rack Branch ID mm",
-                "Max_Branch_Velocity_m_s",
+                "Design Flow LPM",
+                "Max Pipe Velocity m/s",
+                "Pump Head Basis kPa",
+                "Worst Rack",
             ],
             title=(
-                "Coolant × Pipe Scenario · "
+                "Detailed Coolant × Pipe Scenario · "
                 "Pressure Drop vs Pump Power"
             ),
         )
@@ -7282,9 +7759,11 @@ elif phase == 5:
         )
 
         st.info(
-            "그래프의 좌측·하단 방향은 현재 계산조건에서 hydraulic burden이 "
-            "상대적으로 낮음을 의미합니다. 단, 관경 증가에 따른 CAPEX, "
-            "설치공간 및 자재량은 현재 PoC에 포함되지 않습니다."
+            "본 비교는 Phase 4에서 승인된 topology, Rack layout, "
+            "thermal design flow 및 hydraulic design basis를 사용합니다. "
+            "좌측·하단 방향은 현재 계산조건에서 hydraulic burden이 "
+            "상대적으로 낮음을 의미합니다. CAPEX, 설치공간 및 자재량은 "
+            "현재 PoC 비교에 포함되지 않습니다."
         )
 
         # ===================================
