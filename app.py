@@ -6811,8 +6811,6 @@ elif phase == 4:
                 },
 
                 "summary": {
-                
-                "summary": {
                     "rack_count": int(
                         len(
                             cfd_boundary_df
