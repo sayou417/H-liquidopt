@@ -2987,6 +2987,10 @@ def solve_rack_flow_distribution(
                         path_state[
                             "common_header_dp_kpa"
                         ],
+                    "shared_common_minor_dp_kpa":
+                        path_state[
+                            "shared_common_minor_dp_kpa"
+                        ],
                     "row_header_dp_kpa":
                         path_state[
                             "row_header_dp_kpa"
