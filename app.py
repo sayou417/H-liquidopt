@@ -8384,14 +8384,57 @@ elif phase == 5:
                 )
             ),
 
+            "rack_dp_model": {
+                "oem_curve_active": (
+                    rack_dp_curve is not None
+                ),
+                "model_type": (
+                    "Engineer-verified OEM Q–ΔP curve"
+                    if rack_dp_curve is not None
+                    else "Synthetic rack ΔP fallback"
+                ),
+                "verified_point_count": (
+                    rack_dp_curve.point_count
+                    if rack_dp_curve is not None
+                    else 0
+                ),
+                "verified_flow_min_lpm": (
+                    rack_dp_curve.q_min_lpm
+                    if rack_dp_curve is not None
+                    else None
+                ),
+                "verified_flow_max_lpm": (
+                    rack_dp_curve.q_max_lpm
+                    if rack_dp_curve is not None
+                    else None
+                ),
+                "extrapolation_allowed": False,
+                "selected_design_flow_lpm": (
+                    calculated_rack_flow
+                ),
+                "design_flow_within_verified_range": (
+                    (
+                        rack_dp_curve.q_min_lpm
+                        <= calculated_rack_flow
+                        <= rack_dp_curve.q_max_lpm
+                    )
+                    if (
+                        rack_dp_curve is not None
+                        and calculated_rack_flow is not None
+                    )
+                    else None
+                ),
+            },
+
             "known_model_limitations": [
-                (
-                    "Rack internal pressure drop may still "
-                    "use a synthetic placeholder unless an "
-                    "OEM pressure-flow curve is implemented."
+               (
+                    "Rack internal pressure drop uses the "
+                    "engineer-verified OEM Q–ΔP curve when "
+                    "rack_dp_model.oem_curve_active is true; "
+                    "otherwise the synthetic fallback is used."
                 ),
                 (
-                    "Pipe diameter sensitivity does not "
+                    "Pipe diameter sensitivity does not " 
                     "include project CAPEX."
                 ),
                 (
