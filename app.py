@@ -6662,6 +6662,10 @@ elif phase == 4:
                     export_coolant,
                     supply_t,
                     return_t,
+                    rack_pitch_m=rack_pitch_m,
+                    row_pitch_m=row_pitch_m,
+                    origin_x_m=0.0,
+                    origin_y_m=0.0,
                 )
             )
 
