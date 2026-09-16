@@ -3146,7 +3146,6 @@ def solve_rack_flow_distribution(
             pod_output_records
         ),
     }
-
 def hydraulic_candidate(
     pod_liquid_load_kw: float,
     liquid_racks: int,
