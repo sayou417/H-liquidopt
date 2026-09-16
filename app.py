@@ -7171,6 +7171,124 @@ elif phase == 5:
         )
     )
 
+    # ===================================
+    # REBUILD APPROVED COOLANT INPUTS
+    # ===================================
+    phase5_selected_cases = (
+        st.session_state.get(
+            "phase3_approved_analysis_cases",
+            [],
+        )
+    )
+
+    coolants = []
+
+    if (
+        "A · Baseline Reference"
+        in phase5_selected_cases
+    ):
+        baseline_data = (
+            st.session_state.get(
+                "phase3_baseline"
+            )
+        )
+
+        if baseline_data:
+            coolants.append(
+                Coolant(
+                    baseline_data["name"],
+                    float(
+                        baseline_data[
+                            "rho_kg_m3"
+                        ]
+                    ),
+                    float(
+                        baseline_data[
+                            "cp_kj_kgk"
+                        ]
+                    ),
+                    float(
+                        baseline_data[
+                            "mu_pa_s"
+                        ]
+                    ),
+                    "Baseline Reference",
+                )
+            )
+
+    if (
+        "B · Project Candidate"
+        in phase5_selected_cases
+    ):
+        candidate_data = (
+            st.session_state.get(
+                "phase3_supplier_coolant"
+            )
+        )
+
+        if candidate_data:
+            coolants.append(
+                Coolant(
+                    candidate_data["name"],
+                    float(
+                        candidate_data[
+                            "rho_kg_m3"
+                        ]
+                    ),
+                    float(
+                        candidate_data[
+                            "cp_kj_kgk"
+                        ]
+                    ),
+                    float(
+                        candidate_data[
+                            "mu_pa_s"
+                        ]
+                    ),
+                    "Project Candidate",
+                )
+            )
+
+    if (
+        "C · PG30 Sensitivity"
+        in phase5_selected_cases
+    ):
+        sensitivity_data = (
+            st.session_state.get(
+                "phase3_sensitivity"
+            )
+        )
+
+        if sensitivity_data:
+            coolants.append(
+                Coolant(
+                    sensitivity_data["name"],
+                    float(
+                        sensitivity_data[
+                            "rho_kg_m3"
+                        ]
+                    ),
+                    float(
+                        sensitivity_data[
+                            "cp_kj_kgk"
+                        ]
+                    ),
+                    float(
+                        sensitivity_data[
+                            "mu_pa_s"
+                        ]
+                    ),
+                    "Sensitivity Case",
+                )
+            )
+
+    if not coolants:
+        st.error(
+            "Phase 5에서 사용할 승인 coolant case를 "
+            "복원할 수 없습니다."
+        )
+        st.stop()
+    
     if (
         phase5_geometry is None
         or phase5_network_basis is None
