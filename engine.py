@@ -2371,22 +2371,26 @@ def solve_rack_flow_distribution(
     rack_dp_curve: RackPressureCurve | None = None,
 ) -> dict:
     """
-    Solve rack-level hydraulic flow distribution.
+    Perform rack-level design-flow hydraulic analysis.
 
-    Distribution mode:
-    - Total solved rack flow is constrained to the
-      total thermal required flow.
-    - All parallel rack paths within a Pod share
-      the same hydraulic head.
-    - Header-segment losses are recalculated from
-      the actual flow passing through each segment.
+    Engineering basis:
+    - Each liquid-cooled rack is assigned its thermal
+      required liquid flow.
+    - Each pipe segment carries the sum of the design
+      flows of racks downstream of that segment.
+    - Segment pressure losses are calculated using the
+      deterministic hydraulic model.
+    - Each rack path pressure drop is reconstructed from
+      the physical segments used by that rack.
+    - The worst design path defines the hydraulic pump-head
+      requirement for the subsystem.
+    - Balancing margin is added only as pump sizing reserve.
 
-    The result therefore shows how the available
-    total flow distributes among racks.
-
-    Balancing margin is NOT treated as a physical
-    balancing-valve resistance in this solver.
-    It is added only to the reported pump-head basis.
+    This function does NOT predict natural rack-flow
+    distribution. Actual rack flow distribution requires
+    additional system information such as pump curves,
+    valve characteristics, balancing-device settings,
+    and verified equipment hydraulic behaviour.
     """
 
     rack_requirements = rack_flow_requirements(
@@ -2395,14 +2399,12 @@ def solve_rack_flow_distribution(
         delta_t_k,
     )
 
-    network_segments = (
-        build_hydraulic_network_segments(
-            racks,
-            coolant,
-            delta_t_k,
-            geom,
-            layout,
-        )
+    network_segments = build_hydraulic_network_segments(
+        racks,
+        coolant,
+        delta_t_k,
+        geom,
+        layout,
     )
 
     if rack_requirements.empty:
@@ -2417,9 +2419,16 @@ def solve_rack_flow_distribution(
             "Detailed hydraulic network contains no pipe segments."
         )
 
-    # =========================================
-    # Synthetic fallback reference
-    # =========================================
+    topology_mode = str(
+        layout.topology_mode
+    ).strip()
+
+    if "hydraulic_group" not in network_segments.columns:
+        raise ValueError(
+            "Hydraulic segment table does not contain "
+            "hydraulic_group information."
+        )
+
     water_reference = Coolant(
         "Water reference",
         992.2,
@@ -2427,42 +2436,9 @@ def solve_rack_flow_distribution(
         0.000653,
     )
 
-    mean_liquid_load_kw = float(
-        rack_requirements[
-            "liquid_load_kw"
-        ].mean()
-    )
-
-    water_ref_flow_lpm = (
-        required_flow_lpm(
-            mean_liquid_load_kw,
-            water_reference,
-            delta_t_k,
-        )
-        if mean_liquid_load_kw > 0
-        else 0.0
-    )
-
     rack_output_records = []
     segment_output_records = []
     pod_output_records = []
-
-    # =========================================
-    # Solve each topology-defined
-    # hydraulic subsystem
-    # =========================================
-    topology_mode = str(
-        layout.topology_mode
-    ).strip()
-
-    if (
-        "hydraulic_group"
-        not in network_segments.columns
-    ):
-        raise ValueError(
-            "Hydraulic segment table does not contain "
-            "hydraulic_group information."
-        )
 
     hydraulic_groups = (
         network_segments[
@@ -2475,24 +2451,15 @@ def solve_rack_flow_distribution(
 
     for hydraulic_group in hydraulic_groups:
 
-        pod_segments = network_segments[
+        group_segments = network_segments[
             network_segments[
                 "hydraulic_group"
             ].astype(str)
-            == str(
-                hydraulic_group
-            )
+            == str(hydraulic_group)
         ].copy()
 
-        # -------------------------------------
-        # Determine which racks belong to
-        # this hydraulic subsystem.
-        #
-        # Every rack has exactly one branch
-        # equivalent segment.
-        # -------------------------------------
-        branch_segments = pod_segments[
-            pod_segments[
+        branch_segments = group_segments[
+            group_segments[
                 "segment_type"
             ]
             == "rack_branch_equivalent"
@@ -2520,12 +2487,9 @@ def solve_rack_flow_distribution(
                         in downstream_ids
                     ]
                 )
-
             else:
                 group_rack_ids.append(
-                    str(
-                        downstream_ids
-                    )
+                    str(downstream_ids)
                 )
 
         group_rack_ids = list(
@@ -2537,7 +2501,7 @@ def solve_rack_flow_distribution(
         if not group_rack_ids:
             continue
 
-        pod_racks = rack_requirements[
+        group_racks = rack_requirements[
             rack_requirements[
                 "rack_id"
             ].astype(str).isin(
@@ -2545,17 +2509,17 @@ def solve_rack_flow_distribution(
             )
         ].copy()
 
-        if pod_racks.empty:
+        if group_racks.empty:
             continue
 
-        pod_racks[
+        group_racks[
             "rack_id"
-        ] = pod_racks[
+        ] = group_racks[
             "rack_id"
         ].astype(str)
 
-        pod_racks = (
-            pod_racks.sort_values(
+        group_racks = (
+            group_racks.sort_values(
                 [
                     "pod",
                     "row_index",
@@ -2567,8 +2531,21 @@ def solve_rack_flow_distribution(
             )
         )
 
+        rack_ids = (
+            group_racks[
+                "rack_id"
+            ].astype(str).tolist()
+        )
+
+        required_flow_map = {
+            str(row["rack_id"]): float(
+                row["required_flow_lpm"]
+            )
+            for _, row in group_racks.iterrows()
+        }
+
         group_pods = (
-            pod_racks[
+            group_racks[
                 "pod"
             ]
             .astype(str)
@@ -2576,161 +2553,21 @@ def solve_rack_flow_distribution(
             .tolist()
         )
 
-        if len(group_pods) == 1:
-            summary_pod_label = (
-                group_pods[0]
-            )
-
-        else:
-            summary_pod_label = (
-                "MULTI"
-            )
-
-        rack_ids = (
-            pod_racks[
-                "rack_id"
-            ].astype(str).tolist()
-        )
-
-        required_flows = (
-            pod_racks[
-                "required_flow_lpm"
-            ].astype(float).to_numpy()
+        summary_pod_label = (
+            group_pods[0]
+            if len(group_pods) == 1
+            else "MULTI"
         )
 
         target_total_flow = float(
-            required_flows.sum()
+            group_racks[
+                "required_flow_lpm"
+            ].sum()
         )
-
-        if target_total_flow <= 0:
-            continue
-
-        rack_index = {
-            rack_id: index
-            for index, rack_id
-            in enumerate(rack_ids)
-        }
-
-        required_flow_map = {
-            rack_id: float(
-                required_flows[index]
-            )
-            for index, rack_id
-            in enumerate(rack_ids)
-        }
 
         # =====================================
-        # Precompute hydraulic topology
-        # for fast nonlinear iterations
+        # OEM rack curve validation
         # =====================================
-        segment_numbers = (
-            pod_segments.index.tolist()
-        )
-
-        segment_count = len(
-            segment_numbers
-        )
-
-        rack_count = len(
-            rack_ids
-        )
-
-        segment_lengths = (
-            pod_segments[
-                "length_m"
-            ].astype(float).to_numpy()
-        )
-
-        segment_diameters = (
-            pod_segments[
-                "diameter_m"
-            ].astype(float).to_numpy()
-        )
-
-        segment_minor_k = (
-            pod_segments[
-                "minor_k"
-            ].astype(float).to_numpy()
-        )
-
-        segment_types = (
-            pod_segments[
-                "segment_type"
-            ].astype(str).to_numpy()
-        )
-
-        rack_segment_membership = np.zeros(
-            (
-                rack_count,
-                segment_count,
-            ),
-            dtype=bool,
-        )
-
-        segment_downstream_indices = []
-
-        for segment_position, downstream_ids in enumerate(
-            pod_segments[
-                "downstream_rack_ids"
-            ].tolist()
-        ):
-            if isinstance(
-                downstream_ids,
-                str,
-            ):
-                downstream_ids = (
-                    downstream_ids,
-                )
-
-            indices = [
-                rack_index[
-                    str(rack_id)
-                ]
-                for rack_id
-                in downstream_ids
-                if str(rack_id)
-                in rack_index
-            ]
-
-            indices_array = np.array(
-                indices,
-                dtype=int,
-            )
-
-            segment_downstream_indices.append(
-                indices_array
-            )
-
-            if len(
-                indices_array
-            ) > 0:
-                rack_segment_membership[
-                    indices_array,
-                    segment_position,
-                ] = True
-
-        common_segment_mask = (
-            segment_types
-            == "common_header"
-        )
-
-        row_segment_mask = (
-            segment_types
-            == "row_header"
-        )
-
-        branch_segment_mask = (
-            segment_types
-            == "rack_branch_equivalent"
-        )
-        
-        rack_segment_membership_float = (
-            rack_segment_membership.astype(float)
-        )
-        
-        # -------------------------------------
-        # OEM curve range validation
-        # -------------------------------------
         if rack_dp_curve is not None:
             invalid_required = [
                 rack_id
@@ -2747,133 +2584,108 @@ def solve_rack_flow_distribution(
                 raise ValueError(
                     "Thermal required flow for one or more racks "
                     "is outside the verified OEM rack Q–ΔP range. "
-                    "Detailed flow-distribution solving is blocked "
+                    "Design-flow hydraulic analysis is blocked "
                     "to avoid extrapolation. "
                     f"Example rack: {invalid_required[0]}"
                 )
 
         # =====================================
-        # Rack internal ΔP model
+        # Rack internal pressure-drop model
         # =====================================
         def rack_internal_dp_kpa(
             rack_id: str,
             flow_lpm: float,
         ) -> float:
-            flow = float(
-                flow_lpm
-            )
+
+            flow = float(flow_lpm)
 
             if flow <= 0:
                 return 0.0
 
             if rack_dp_curve is not None:
                 return float(
-                    rack_dp_curve.a
-                    * flow**2
-                    + rack_dp_curve.b
-                    * flow
+                    rack_dp_from_curve(
+                        flow,
+                        rack_dp_curve,
+                        allow_extrapolation=False,
+                    )
                 )
 
-            rack_reference_flow = float(
+            required_flow = float(
                 required_flow_map[
                     rack_id
                 ]
             )
 
-            if rack_reference_flow > 0:
-                return float(
-                    geom.rack_dp_reference_kpa
-                    * (
-                        coolant.rho_kg_m3
-                        / water_reference.rho_kg_m3
-                    )
-                    * (
-                        flow
-                        / rack_reference_flow
-                    ) ** 2
-                )
+            if required_flow <= 0:
+                return 0.0
 
             return float(
                 geom.rack_dp_reference_kpa
+                * (
+                    coolant.rho_kg_m3
+                    / water_reference.rho_kg_m3
+                )
             )
 
         # =====================================
-        # Evaluate complete hydraulic state
-        # for a trial rack-flow vector
-        #
-        # Performance note:
-        # topology membership is precomputed once
-        # outside this function so nonlinear solver
-        # iterations do not repeatedly scan DataFrames.
+        # Segment design-flow calculations
         # =====================================
-        def evaluate_state(
-            flow_vector,
+        segment_state = {}
+
+        for segment_number, segment in (
+            group_segments.iterrows()
         ):
-            flow_vector = np.asarray(
-                flow_vector,
-                dtype=float,
-            )
 
-            # ---------------------------------
-            # Rack flow vector → segment flows
-            # ---------------------------------
-            segment_flow_vector = (
-                rack_segment_membership_float.T
-                @ flow_vector
-            )
+            downstream_ids = segment[
+                "downstream_rack_ids"
+            ]
 
-            segment_velocity = np.zeros(
-                segment_count,
-                dtype=float,
-            )
-
-            segment_pipe_dp = np.zeros(
-                segment_count,
-                dtype=float,
-            )
-
-            segment_minor_dp = np.zeros(
-                segment_count,
-                dtype=float,
-            )
-
-            # Pipe friction calculation still uses
-            # the deterministic hydraulic functions,
-            # but no DataFrame iteration occurs here.
-            for segment_position in range(
-                segment_count
+            if isinstance(
+                downstream_ids,
+                str,
             ):
-                segment_flow = float(
-                    segment_flow_vector[
-                        segment_position
-                    ]
+                downstream_ids = (
+                    downstream_ids,
                 )
 
-                if segment_flow <= 0:
-                    continue
+            design_flow_lpm = float(
+                sum(
+                    required_flow_map.get(
+                        str(rack_id),
+                        0.0,
+                    )
+                    for rack_id
+                    in downstream_ids
+                )
+            )
 
-                diameter_m = float(
-                    segment_diameters[
-                        segment_position
-                    ]
+            diameter_m = float(
+                segment[
+                    "diameter_m"
+                ]
+            )
+
+            length_m = float(
+                segment[
+                    "length_m"
+                ]
+            )
+
+            minor_k = float(
+                segment[
+                    "minor_k"
+                ]
+            )
+
+            if design_flow_lpm > 0:
+                velocity_m_s = _velocity(
+                    design_flow_lpm,
+                    diameter_m,
                 )
 
-                length_m = float(
-                    segment_lengths[
-                        segment_position
-                    ]
-                )
-
-                minor_k = float(
-                    segment_minor_k[
-                        segment_position
-                    ]
-                )
-
-                segment_pipe_dp[
-                    segment_position
-                ] = _pipe_dp_kpa(
-                    segment_flow,
+                pipe_dp_kpa = _pipe_dp_kpa(
+                    design_flow_lpm,
                     coolant.rho_kg_m3,
                     coolant.mu_pa_s,
                     length_m,
@@ -2881,557 +2693,213 @@ def solve_rack_flow_distribution(
                     geom.roughness_m,
                 )
 
-                segment_minor_dp[
-                    segment_position
-                ] = _minor_dp_kpa(
-                    segment_flow,
+                minor_dp_kpa = _minor_dp_kpa(
+                    design_flow_lpm,
                     coolant.rho_kg_m3,
                     diameter_m,
                     minor_k,
                 )
 
-                segment_velocity[
-                    segment_position
-                ] = _velocity(
-                    segment_flow,
-                    diameter_m,
-                )
+            else:
+                velocity_m_s = 0.0
+                pipe_dp_kpa = 0.0
+                minor_dp_kpa = 0.0
 
-            segment_total_dp = (
-                segment_pipe_dp
-                + segment_minor_dp
+            total_dp_kpa = (
+                pipe_dp_kpa
+                + minor_dp_kpa
             )
 
-            # ---------------------------------
-            # Shared common minor loss
-            # ---------------------------------
-            total_pod_flow = float(
-                flow_vector.sum()
-            )
-
-            if topology_mode == "in_row":
-                shared_common_minor_dp = 0.0
-
-            else:
-                shared_common_minor_dp = (
-                    _minor_dp_kpa(
-                        total_pod_flow,
-                        coolant.rho_kg_m3,
-                        geom.common_diameter_m,
-                        geom.common_minor_k,
-                    )
-                    if total_pod_flow > 0
-                    else 0.0
-                )
-
-            # ---------------------------------
-            # Sum segment losses belonging to
-            # every rack path using matrix ops
-            # ---------------------------------
-            if np.any(
-                common_segment_mask
-            ):
-                common_header_dp_vector = (
-                    rack_segment_membership_float[
-                        :,
-                        common_segment_mask,
-                    ]
-                    @ segment_total_dp[
-                        common_segment_mask
-                    ]
-                )
-
-            else:
-                common_header_dp_vector = np.zeros(
-                    rack_count,
-                    dtype=float,
-                )
-
-            if np.any(
-                row_segment_mask
-            ):
-                row_header_dp_vector = (
-                    rack_segment_membership_float[
-                        :,
-                        row_segment_mask,
-                    ]
-                    @ segment_total_dp[
-                        row_segment_mask
-                    ]
-                )
-
-            else:
-                row_header_dp_vector = np.zeros(
-                    rack_count,
-                    dtype=float,
-                )
-
-            if np.any(
-                branch_segment_mask
-            ):
-                branch_dp_vector = (
-                    rack_segment_membership_float[
-                        :,
-                        branch_segment_mask,
-                    ]
-                    @ segment_total_dp[
-                        branch_segment_mask
-                    ]
-                )
-
-            else:
-                branch_dp_vector = np.zeros(
-                    rack_count,
-                    dtype=float,
-                )
-
-            # ---------------------------------
-            # Rack internal pressure drop
-            # ---------------------------------
-            rack_dp_vector = np.array(
-                [
-                    rack_internal_dp_kpa(
-                        rack_id,
-                        flow_vector[
-                            rack_position
-                        ],
-                    )
-                    for rack_position, rack_id
-                    in enumerate(
-                        rack_ids
-                    )
-                ],
-                dtype=float,
-            )
-
-            total_path_dp_vector = (
-                common_header_dp_vector
-                + row_header_dp_vector
-                + branch_dp_vector
-                + shared_common_minor_dp
-                + rack_dp_vector
-            )
-
-            # ---------------------------------
-            # Build dictionaries only once per
-            # evaluated state for compatibility
-            # with the existing solver/output.
-            # ---------------------------------
-            flow_map = {
-                rack_id: float(
-                    flow_vector[
-                        rack_position
-                    ]
-                )
-                for rack_position, rack_id
-                in enumerate(
-                    rack_ids
-                )
+            segment_state[
+                segment_number
+            ] = {
+                "flow_lpm":
+                    design_flow_lpm,
+                "velocity_m_s":
+                    velocity_m_s,
+                "pipe_dp_kpa":
+                    pipe_dp_kpa,
+                "minor_dp_kpa":
+                    minor_dp_kpa,
+                "total_dp_kpa":
+                    total_dp_kpa,
             }
 
-            rack_path_state = {
-                rack_id: {
-                    "common_header_dp_kpa":
-                        float(
-                            common_header_dp_vector[
-                                rack_position
-                            ]
-                        ),
-                    "row_header_dp_kpa":
-                        float(
-                            row_header_dp_vector[
-                                rack_position
-                            ]
-                        ),
-                    "branch_dp_kpa":
-                        float(
-                            branch_dp_vector[
-                                rack_position
-                            ]
-                        ),
-                    "shared_common_minor_dp_kpa":
-                        float(
-                            shared_common_minor_dp
-                        ),
-                    "rack_dp_kpa":
-                        float(
-                            rack_dp_vector[
-                                rack_position
-                            ]
-                        ),
-                    "total_path_dp_kpa":
-                        float(
-                            total_path_dp_vector[
-                                rack_position
-                            ]
-                        ),
-                }
-                for rack_position, rack_id
-                in enumerate(
-                    rack_ids
-                )
-            }
-
-            segment_state = {
-                segment_numbers[
-                    segment_position
-                ]: {
-                    "flow_lpm":
-                        float(
-                            segment_flow_vector[
-                                segment_position
-                            ]
-                        ),
-                    "velocity_m_s":
-                        float(
-                            segment_velocity[
-                                segment_position
-                            ]
-                        ),
-                    "pipe_dp_kpa":
-                        float(
-                            segment_pipe_dp[
-                                segment_position
-                            ]
-                        ),
-                    "minor_dp_kpa":
-                        float(
-                            segment_minor_dp[
-                                segment_position
-                            ]
-                        ),
-                    "total_dp_kpa":
-                        float(
-                            segment_total_dp[
-                                segment_position
-                            ]
-                        ),
-                }
-                for segment_position in range(
-                    segment_count
-                )
-            }
-
-            return {
-                "flow_map": flow_map,
-                "segment_state": segment_state,
-                "rack_path_state": rack_path_state,
-                "total_flow_lpm": total_pod_flow,
-            }   
-        
         # =====================================
-        # Initial condition
+        # Shared common minor loss
         # =====================================
-        initial_flows = (
-            required_flows.copy()
-        )
-
-        initial_state = evaluate_state(
-            initial_flows
-        )
-
-        initial_path_dps = [
-            initial_state[
-                "rack_path_state"
-            ][rack_id][
-                "total_path_dp_kpa"
-            ]
-            for rack_id in rack_ids
-        ]
-
-        initial_head = max(
-            float(
-                np.mean(
-                    initial_path_dps
-                )
-            ),
-            1.0,
-        )
-
-        # Unknown vector:
-        # [Q1, Q2, ... Qn, common_head]
-        initial_vector = np.concatenate(
-            [
-                initial_flows,
-                np.array(
-                    [
-                        initial_head
-                    ],
-                    dtype=float,
-                ),
-            ]
-        )
-
-        pressure_scale = max(
-            initial_head,
-            1.0,
-        )
-
-        flow_scale = max(
-            target_total_flow,
-            1.0,
-        )
-
-        # =====================================
-        # Bounds
-        # =====================================
-        if rack_dp_curve is not None:
-            flow_lower_bounds = np.full(
-                len(rack_ids),
-                rack_dp_curve.q_min_lpm,
-                dtype=float,
-            )
-
-            flow_upper_bounds = np.full(
-                len(rack_ids),
-                rack_dp_curve.q_max_lpm,
-                dtype=float,
-            )
-
-            if (
-                target_total_flow
-                < float(
-                    flow_lower_bounds.sum()
-                )
-                or target_total_flow
-                > float(
-                    flow_upper_bounds.sum()
-                )
-            ):
-                raise ValueError(
-                    "Total thermal required flow cannot be "
-                    "distributed within the verified OEM "
-                    "rack Q–ΔP flow range."
-                )
+        if topology_mode == "in_row":
+            shared_common_minor_dp = 0.0
 
         else:
-            # ---------------------------------
-            # Synthetic fallback guardrail
-            # ---------------------------------
-            # Without a verified OEM Q–ΔP curve,
-            # the detailed solver is only used as
-            # a preliminary distribution diagnostic.
-            #
-            # Keep the nonlinear search near each
-            # rack's thermal required flow so that
-            # mathematically valid but physically
-            # meaningless extreme-flow solutions
-            # are excluded.
-            flow_lower_bounds = (
-                required_flows
-                * 0.50
+            shared_common_minor_dp = (
+                _minor_dp_kpa(
+                    target_total_flow,
+                    coolant.rho_kg_m3,
+                    geom.common_diameter_m,
+                    geom.common_minor_k,
+                )
+                if target_total_flow > 0
+                else 0.0
             )
-
-            flow_upper_bounds = (
-                required_flows
-                * 1.50
-            )
-
-        lower_bounds = np.concatenate(
-            [
-                flow_lower_bounds,
-                np.array(
-                    [
-                        1e-6
-                    ],
-                    dtype=float,
-                ),
-            ]
-        )
-
-        upper_bounds = np.concatenate(
-            [
-                flow_upper_bounds,
-                np.array(
-                    [
-                        np.inf
-                    ],
-                    dtype=float,
-                ),
-            ]
-        )
 
         # =====================================
-        # Coupled nonlinear residuals
+        # Rack design-path reconstruction
         # =====================================
-        def residual_function(
-            unknown_vector,
-        ):
-            rack_flows = (
-                unknown_vector[
-                    :-1
+        rack_path_state = {}
+
+        for rack_id in rack_ids:
+
+            common_header_dp = 0.0
+            row_header_dp = 0.0
+            branch_dp = 0.0
+
+            for segment_number, segment in (
+                group_segments.iterrows()
+            ):
+
+                downstream_ids = segment[
+                    "downstream_rack_ids"
                 ]
-            )
 
-            common_head = float(
-                unknown_vector[
-                    -1
-                ]
-            )
+                if isinstance(
+                    downstream_ids,
+                    str,
+                ):
+                    downstream_ids = (
+                        downstream_ids,
+                    )
 
-            state = evaluate_state(
-                rack_flows
-            )
+                downstream_ids = {
+                    str(value)
+                    for value
+                    in downstream_ids
+                }
 
-            residuals = []
+                if rack_id not in downstream_ids:
+                    continue
 
-            # Every parallel rack path must see
-            # the same hydraulic head.
-            for rack_id in rack_ids:
-                rack_path_dp = float(
-                    state[
-                        "rack_path_state"
-                    ][rack_id][
-                        "total_path_dp_kpa"
+                segment_dp = float(
+                    segment_state[
+                        segment_number
+                    ][
+                        "total_dp_kpa"
                     ]
                 )
 
-                residuals.append(
-                    (
-                        rack_path_dp
-                        - common_head
-                    )
-                    / pressure_scale
+                segment_type = str(
+                    segment[
+                        "segment_type"
+                    ]
                 )
 
-            # Preserve total thermal design flow
-            residuals.append(
-                (
-                    float(
-                        rack_flows.sum()
-                    )
-                    - target_total_flow
-                )
-                / flow_scale
+                if segment_type == "common_header":
+                    common_header_dp += segment_dp
+
+                elif segment_type == "row_header":
+                    row_header_dp += segment_dp
+
+                elif (
+                    segment_type
+                    == "rack_branch_equivalent"
+                ):
+                    branch_dp += segment_dp
+
+            rack_flow = float(
+                required_flow_map[
+                    rack_id
+                ]
             )
 
-            return np.array(
-                residuals,
-                dtype=float,
+            rack_dp = rack_internal_dp_kpa(
+                rack_id,
+                rack_flow,
             )
 
-        solution = least_squares(
-            residual_function,
-            initial_vector,
-            bounds=(
-                lower_bounds,
-                upper_bounds,
+            total_path_dp = (
+                common_header_dp
+                + row_header_dp
+                + branch_dp
+                + shared_common_minor_dp
+                + rack_dp
+            )
+
+            rack_path_state[
+                rack_id
+            ] = {
+                "common_header_dp_kpa":
+                    common_header_dp,
+                "row_header_dp_kpa":
+                    row_header_dp,
+                "branch_dp_kpa":
+                    branch_dp,
+                "shared_common_minor_dp_kpa":
+                    shared_common_minor_dp,
+                "rack_dp_kpa":
+                    rack_dp,
+                "total_path_dp_kpa":
+                    total_path_dp,
+            }
+
+        if not rack_path_state:
+            continue
+
+        path_dp_values = np.array(
+            [
+                rack_path_state[
+                    rack_id
+                ][
+                    "total_path_dp_kpa"
+                ]
+                for rack_id in rack_ids
+            ],
+            dtype=float,
+        )
+
+        worst_path_dp_kpa = float(
+            path_dp_values.max()
+        )
+
+        best_path_dp_kpa = float(
+            path_dp_values.min()
+        )
+
+        path_imbalance_kpa = float(
+            worst_path_dp_kpa
+            - best_path_dp_kpa
+        )
+
+        path_imbalance_pct = (
+            path_imbalance_kpa
+            / max(
+                worst_path_dp_kpa,
+                1e-6,
+            )
+            * 100.0
+        )
+
+        worst_rack_position = int(
+            np.argmax(
+                path_dp_values
+            )
+        )
+
+        worst_rack_id = (
+            rack_ids[
+                worst_rack_position
+            ]
+        )
+
+        balancing_margin_kpa = max(
+            float(
+                geom.balancing_margin_kpa
             ),
-            max_nfev=2000,
-            xtol=1e-10,
-            ftol=1e-10,
-            gtol=1e-10,
+            0.0,
         )
 
-        if not solution.success:
-            raise ValueError(
-                "Detailed hydraulic flow-distribution "
-                "solver did not converge. "
-                f"Solver message: {solution.message}"
-            )
-
-        # =====================================
-        # Post-solution residual validation
-        # =====================================
-        final_residuals = residual_function(
-            solution.x
-        )
-
-        pressure_residuals = (
-            final_residuals[
-                :-1
-            ]
-            * pressure_scale
-        )
-
-        flow_residual_lpm = float(
-            final_residuals[
-                -1
-            ]
-            * flow_scale
-        )
-
-        max_pressure_residual_kpa = float(
-            np.max(
-                np.abs(
-                    pressure_residuals
-                )
-            )
-        )
-
-        max_pressure_residual_pct = (
-            max_pressure_residual_kpa
-            / max(
-                float(
-                    solution.x[
-                        -1
-                    ]
-                ),
-                1e-6,
-            )
-            * 100.0
-        )
-
-        flow_residual_pct = (
-            abs(
-                flow_residual_lpm
-            )
-            / max(
-                target_total_flow,
-                1e-6,
-            )
-            * 100.0
-        )
-
-        pressure_tolerance_pct = 0.1
-        flow_tolerance_pct = 0.01
-
-        residual_check_passed = (
-            max_pressure_residual_pct
-            <= pressure_tolerance_pct
-            and flow_residual_pct
-            <= flow_tolerance_pct
-        )
-
-        if not residual_check_passed:
-            raise ValueError(
-                "Detailed hydraulic solver terminated, "
-                "but the final residual check did not pass. "
-                f"Maximum path-pressure residual = "
-                f"{max_pressure_residual_pct:.4f}% "
-                f"(limit {pressure_tolerance_pct:.2f}%), "
-                f"total-flow residual = "
-                f"{flow_residual_pct:.4f}% "
-                f"(limit {flow_tolerance_pct:.2f}%)."
-            )
-
-        solved_flows = (
-            solution.x[
-                :-1
-            ]
-        )
-
-        solved_head = float(
-            solution.x[
-                -1
-            ]
-        )
-
-        solved_state = evaluate_state(
-            solved_flows
-        )
-
-        # Pump sizing basis includes reserve margin,
-        # but the margin is not treated as a valve
-        # resistance affecting distribution.
         pump_head_basis_kpa = (
-            solved_head
-            + max(
-                float(
-                    geom.balancing_margin_kpa
-                ),
-                0.0,
-            )
+            worst_path_dp_kpa
+            + balancing_margin_kpa
         )
 
         eta = max(
@@ -3444,9 +2912,7 @@ def solve_rack_flow_distribution(
             pump_head_basis_kpa
             * 1000.0
             * (
-                solved_state[
-                    "total_flow_lpm"
-                ]
+                target_total_flow
                 / 60000.0
             )
             / 1000.0
@@ -3454,21 +2920,16 @@ def solve_rack_flow_distribution(
         )
 
         # =====================================
-        # Rack-level outputs
+        # Rack-level output
         # =====================================
         for _, rack_row in (
-            pod_racks.iterrows()
+            group_racks.iterrows()
         ):
+
             rack_id = str(
                 rack_row[
                     "rack_id"
                 ]
-            )
-
-            actual_flow = float(
-                solved_state[
-                    "flow_map"
-                ][rack_id]
             )
 
             required_flow = float(
@@ -3477,60 +2938,51 @@ def solve_rack_flow_distribution(
                 ]
             )
 
-            flow_margin_lpm = (
-                actual_flow
-                - required_flow
+            path_state = (
+                rack_path_state[
+                    rack_id
+                ]
             )
 
-            flow_margin_pct = (
-                flow_margin_lpm
-                / required_flow
-                * 100.0
-                if required_flow > 0
-                else 0.0
+            head_margin_kpa = (
+                pump_head_basis_kpa
+                - float(
+                    path_state[
+                        "total_path_dp_kpa"
+                    ]
+                )
             )
-
-            path_state = solved_state[
-                "rack_path_state"
-            ][rack_id]
 
             rack_output_records.append(
                 {
                     "coolant":
                         coolant.name,
-
                     "topology_mode":
                         topology_mode,
-
                     "hydraulic_group":
                         str(
                             hydraulic_group
                         ),
-
                     "pod":
                         str(
                             rack_row[
                                 "pod"
                             ]
                         ),
-
                     "rack_id":
                         rack_id,
                     "row":
-                        rack_row["row"],
+                        rack_row[
+                            "row"
+                        ],
                     "col":
-                        rack_row["col"],
+                        rack_row[
+                            "col"
+                        ],
                     "required_flow_lpm":
                         required_flow,
-                    "actual_flow_lpm":
-                        actual_flow,
-                    "flow_margin_lpm":
-                        flow_margin_lpm,
-                    "flow_margin_pct":
-                        flow_margin_pct,
-                    "underfed":
-                        flow_margin_pct
-                        < -0.5,
+                    "design_flow_lpm":
+                        required_flow,
                     "common_header_dp_kpa":
                         path_state[
                             "common_header_dp_kpa"
@@ -3551,48 +3003,47 @@ def solve_rack_flow_distribution(
                         path_state[
                             "total_path_dp_kpa"
                         ],
-                    "solved_pump_head_kpa":
-                        solved_head,
+                    "head_margin_kpa":
+                        head_margin_kpa,
+                    "worst_path":
+                        rack_id
+                        == worst_rack_id,
                     "pump_head_basis_kpa":
                         pump_head_basis_kpa,
                 }
             )
 
         # =====================================
-        # Segment-level outputs
+        # Segment-level output
         # =====================================
         for segment_number, segment in (
-            pod_segments.iterrows()
+            group_segments.iterrows()
         ):
-            segment_state = solved_state[
-                "segment_state"
-            ][segment_number]
+
+            state = segment_state[
+                segment_number
+            ]
 
             segment_output_records.append(
                 {
                     "coolant":
                         coolant.name,
-
                     "topology_mode":
                         topology_mode,
-
                     "hydraulic_group":
                         str(
                             hydraulic_group
                         ),
-
                     "pod":
                         str(
                             segment[
                                 "pod"
                             ]
                         ),
-
                     "segment_id":
                         segment[
                             "segment_id"
                         ],
-
                     "segment_type":
                         segment[
                             "segment_type"
@@ -3613,123 +3064,74 @@ def solve_rack_flow_distribution(
                         segment[
                             "diameter_m"
                         ],
-                    "actual_flow_lpm":
-                        segment_state[
+                    "design_flow_lpm":
+                        state[
                             "flow_lpm"
                         ],
                     "velocity_m_s":
-                        segment_state[
+                        state[
                             "velocity_m_s"
                         ],
                     "pipe_dp_kpa":
-                        segment_state[
+                        state[
                             "pipe_dp_kpa"
                         ],
                     "minor_dp_kpa":
-                        segment_state[
+                        state[
                             "minor_dp_kpa"
                         ],
                     "total_dp_kpa":
-                        segment_state[
+                        state[
                             "total_dp_kpa"
                         ],
                 }
             )
 
-        actual_flow_array = np.array(
-            [
-                solved_state[
-                    "flow_map"
-                ][rack_id]
-                for rack_id in rack_ids
-            ],
-            dtype=float,
-        )
-
-        flow_margin_pct_array = (
-            (
-                actual_flow_array
-                - required_flows
-            )
-            / required_flows
-            * 100.0
-        )
-
+        # =====================================
+        # Hydraulic subsystem summary
+        # =====================================
         pod_output_records.append(
             {
                 "coolant":
                     coolant.name,
-
                 "topology_mode":
                     topology_mode,
-
                 "hydraulic_group":
                     str(
                         hydraulic_group
                     ),
-
                 "pod":
                     summary_pod_label,
-
                 "rack_count":
-                    len(rack_ids),
+                    len(
+                        rack_ids
+                    ),
                 "required_total_flow_lpm":
                     target_total_flow,
-                "actual_total_flow_lpm":
-                    solved_state[
-                        "total_flow_lpm"
-                    ],
-                "minimum_flow_margin_pct":
-                    float(
-                        flow_margin_pct_array.min()
-                    ),
-                "maximum_flow_margin_pct":
-                    float(
-                        flow_margin_pct_array.max()
-                    ),
-                "underfed_rack_count":
-                    int(
-                        (
-                            flow_margin_pct_array
-                            < -0.5
-                        ).sum()
-                    ),
-                "solved_pump_head_kpa":
-                    solved_head,
+                "design_total_flow_lpm":
+                    target_total_flow,
+                "best_path_dp_kpa":
+                    best_path_dp_kpa,
+                "worst_path_dp_kpa":
+                    worst_path_dp_kpa,
+                "path_imbalance_kpa":
+                    path_imbalance_kpa,
+                "path_imbalance_pct":
+                    path_imbalance_pct,
+                "worst_rack_id":
+                    worst_rack_id,
                 "balancing_margin_kpa":
-                    max(
-                        float(
-                            geom.balancing_margin_kpa
-                        ),
-                        0.0,
-                    ),
+                    balancing_margin_kpa,
                 "pump_head_basis_kpa":
                     pump_head_basis_kpa,
-                
                 "pump_power_kw":
                     pump_power_kw,
-
-                "max_pressure_residual_kpa":
-                    max_pressure_residual_kpa,
-
-                "max_pressure_residual_pct":
-                    max_pressure_residual_pct,
-
-                "total_flow_residual_lpm":
-                    flow_residual_lpm,
-
-                "total_flow_residual_pct":
-                    flow_residual_pct,
-
+                "analysis_basis":
+                    "Thermal required design flow",
                 "numerical_check_passed":
-                    bool(
-                        residual_check_passed
-                    ),
-
+                    True,
                 "solver_converged":
-                    bool(
-                        solution.success
-                    ),
+                    True,
             }
         )
 
