@@ -7294,18 +7294,6 @@ elif phase == 5:
         )
     )
     
-    if phase5_rack_dp_curve is not None:
-        st.success(
-            "DEBUG · Phase 5 OEM Rack Q–ΔP curve active · "
-            f"{phase5_rack_dp_curve.point_count} points · "
-            f"{phase5_rack_dp_curve.q_min_lpm:.1f}–"
-            f"{phase5_rack_dp_curve.q_max_lpm:.1f} L/min"
-        )
-    else:
-        st.error(
-            "DEBUG · Phase 5 OEM Rack Q–ΔP curve is None"
-        )
-    
     # ===================================
     # REBUILD APPROVED COOLANT INPUTS
     # ===================================
