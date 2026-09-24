@@ -8211,11 +8211,30 @@ elif phase == 5:
                         "Design Flow LPM"
                     ]
                 ),
-                "worst_dp_kpa": float(
+               "worst_dp_kpa": float(
                     selected_scenario[
                         "Worst Path DP kPa"
                     ]
                 ),
+
+                "rack_dp_kpa": float(
+                    selected_scenario[
+                        "Worst Rack DP kPa"
+                    ]
+                ),
+
+                "rack_dp_basis": (
+                    "Engineer-verified OEM Q–ΔP curve interpolation"
+                    if st.session_state.get(
+                        "phase4_rack_dp_curve_state",
+                        {},
+                    ).get(
+                        "active",
+                        False,
+                    )
+                    else "Synthetic rack ΔP fallback"
+                ),
+
                 "path_imbalance_kpa": float(
                     selected_scenario[
                         "Max Path Imbalance kPa"
