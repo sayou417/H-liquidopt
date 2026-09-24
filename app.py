@@ -7288,54 +7288,23 @@ elif phase == 5:
         )
     )
 
-phase5_rack_dp_curve = None
-
-phase5_oem_reference = (
+phase5_rack_dp_curve = (
     st.session_state.get(
-        "phase4_oem_reference"
+        "phase4_rack_dp_curve"
     )
 )
 
-if phase5_oem_reference:
-    phase5_curve_points = (
-        phase5_oem_reference.get(
-            "rack_flow_pressure_points",
-            [],
-        )
+if phase5_rack_dp_curve is not None:
+    st.success(
+        "DEBUG · Phase 5 OEM Rack Q–ΔP curve active · "
+        f"{phase5_rack_dp_curve.point_count} points · "
+        f"{phase5_rack_dp_curve.q_min_lpm:.1f}–"
+        f"{phase5_rack_dp_curve.q_max_lpm:.1f} L/min"
     )
-
-    phase5_curve_input = [
-        (
-            float(
-                point[
-                    "flow_lpm"
-                ]
-            ),
-            float(
-                point[
-                    "pressure_drop_kpa"
-                ]
-            ),
-        )
-        for point in phase5_curve_points
-        if (
-            point.get(
-                "flow_lpm"
-            )
-            is not None
-            and point.get(
-                "pressure_drop_kpa"
-            )
-            is not None
-        )
-    ]
-
-    if len(phase5_curve_input) >= 2:
-        phase5_rack_dp_curve = (
-            fit_rack_dp_curve(
-                phase5_curve_input
-            )
-        )
+else:
+    st.error(
+        "DEBUG · Phase 5 OEM Rack Q–ΔP curve is None"
+    )
 
 # ===================================
 # REBUILD APPROVED COOLANT INPUTS
