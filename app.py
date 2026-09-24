@@ -5410,6 +5410,10 @@ elif phase == 4:
     # SAVE OEM RACK CURVE STATE
     # FOR PHASE 5 CROSS-CHECK
     # ===================================
+    st.session_state[
+        "phase4_rack_dp_curve"
+    ] = rack_dp_curve
+
     if rack_dp_curve is not None:
         st.session_state[
             "phase4_rack_dp_curve_state"
