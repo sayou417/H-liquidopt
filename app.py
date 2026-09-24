@@ -8441,11 +8441,24 @@ elif phase == 5:
                         "max_pipe_velocity_m_s"
                     )
                 ),
-                "worst_path_dp_kpa": (
+               "worst_path_dp_kpa": (
                     final_decision.get(
                         "worst_dp_kpa"
                     )
                 ),
+
+                "calculated_rack_dp_kpa": (
+                    final_decision.get(
+                        "rack_dp_kpa"
+                    )
+                ),
+
+                "rack_dp_basis": (
+                    final_decision.get(
+                        "rack_dp_basis"
+                    )
+                ),
+
                 "max_path_imbalance_kpa": (
                     final_decision.get(
                         "path_imbalance_kpa"
@@ -8468,12 +8481,12 @@ elif phase == 5:
                 ),
             },
             
-            "rack_dp_assumption_kpa": (
+            "synthetic_fallback_rack_dp_reference_kpa": (
                 st.session_state.get(
                     "rack_dp"
                 )
             ),
-    
+
             "verified_oem_reference": (
                 st.session_state.get(
                     "phase4_oem_reference"
