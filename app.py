@@ -7288,15 +7288,58 @@ elif phase == 5:
         )
     )
 
-    phase5_rack_dp_curve = (
-        st.session_state.get(
-            "phase4_rack_dp_curve"
+phase5_rack_dp_curve = None
+
+phase5_oem_reference = (
+    st.session_state.get(
+        "phase4_oem_reference"
+    )
+)
+
+if phase5_oem_reference:
+    phase5_curve_points = (
+        phase5_oem_reference.get(
+            "rack_flow_pressure_points",
+            [],
         )
     )
 
-    # ===================================
-    # REBUILD APPROVED COOLANT INPUTS
-    # ===================================
+    phase5_curve_input = [
+        (
+            float(
+                point[
+                    "flow_lpm"
+                ]
+            ),
+            float(
+                point[
+                    "pressure_drop_kpa"
+                ]
+            ),
+        )
+        for point in phase5_curve_points
+        if (
+            point.get(
+                "flow_lpm"
+            )
+            is not None
+            and point.get(
+                "pressure_drop_kpa"
+            )
+            is not None
+        )
+    ]
+
+    if len(phase5_curve_input) >= 2:
+        phase5_rack_dp_curve = (
+            fit_rack_dp_curve(
+                phase5_curve_input
+            )
+        )
+
+# ===================================
+# REBUILD APPROVED COOLANT INPUTS
+# ===================================
     phase5_selected_cases = (
         st.session_state.get(
             "phase3_approved_analysis_cases",
