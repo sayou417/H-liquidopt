@@ -1,4 +1,4 @@
-from __future__ import annotations
+/from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
@@ -7782,19 +7782,37 @@ elif phase == 5:
                 )
 
                 if not worst_rack_rows.empty:
-                    worst_rack_id = str(
+                    worst_rack_row = (
                         worst_rack_rows.iloc[
                             0
-                        ][
+                        ]
+                    )
+
+                    worst_rack_id = str(
+                        worst_rack_row[
                             "rack_id"
                         ]
                     )
+
+                    worst_rack_dp_kpa = float(
+                        worst_rack_row[
+                            "rack_dp_kpa"
+                        ]
+                    )
+
                 else:
                     worst_rack_id = "-"
+                    worst_rack_dp_kpa = float(
+                        "nan"
+                    )
+
             else:
                 worst_rack_id = "-"
+                worst_rack_dp_kpa = float(
+                    "nan"
+                )
 
-            detailed_scenario_rows.append(
+            detailed_scenario_rows.append(                
                 {
                     "coolant": (
                         scenario_coolant_name
@@ -7837,6 +7855,9 @@ elif phase == 5:
                     ),
                     "Worst Path DP kPa": (
                         worst_path_dp
+                    ),
+                    "Worst Rack DP kPa": (
+                        worst_rack_dp_kpa
                     ),
                     "Max Path Imbalance kPa": (
                         max_path_imbalance
@@ -7938,6 +7959,7 @@ elif phase == 5:
             "Design Flow LPM",
             "Max Pipe Velocity m/s",
             "Worst Path DP kPa",
+            "Worst Rack DP kpa",
             "Max Path Imbalance kPa",
             "Pump Head Basis kPa",
             "Total Pump kW",
@@ -7957,6 +7979,7 @@ elif phase == 5:
                     "Design Flow LPM": "{:.1f}",
                     "Max Pipe Velocity m/s": "{:.2f}",
                     "Worst Path DP kPa": "{:.2f}",
+                    "Worst Rack DP kPa": "{:.2f}",
                     "Max Path Imbalance kPa": "{:.2f}",
                     "Pump Head Basis kPa": "{:.2f}",
                     "Total Pump kW": "{:.2f}",
