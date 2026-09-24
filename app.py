@@ -7959,7 +7959,7 @@ elif phase == 5:
             "Design Flow LPM",
             "Max Pipe Velocity m/s",
             "Worst Path DP kPa",
-            "Worst Rack DP kpa",
+            "Worst Rack DP kPa",
             "Max Path Imbalance kPa",
             "Pump Head Basis kPa",
             "Total Pump kW",
