@@ -2805,48 +2805,70 @@ if phase == 1:
 
     left, right = st.columns([1.35, 1])
 
-    with left:
-        if {"row", "col"}.issubset(calc.columns):
-            pivot = calc.pivot(
-                index="row",
-                columns="col",
-                values="liquid_load_kw",
-            )
+with left:
+    if {"pod", "row", "col"}.issubset(calc.columns):
 
-            fig = px.imshow(
-                pivot,
-                text_auto=".0f",
-                aspect="auto",
-                labels={"color": "Liquid kW"},
-                title="Rack Liquid Heat-Load Density Map",
-                color_continuous_scale="Blues",
-            )
+        st.markdown(
+            "#### Rack Liquid Heat-Load Density Map"
+        )
 
-            fig.update_xaxes(
-                side="top",
-                title="Column",
-            )
+        pod_list = (
+            calc["pod"]
+            .drop_duplicates()
+            .tolist()
+        )
 
-            fig.update_yaxes(
-                title="Row",
-                autorange="reversed",
-            )
+        selected_heatmap_pod = st.selectbox(
+            "Pod to display",
+            pod_list,
+            key="phase1_heatmap_pod",
+        )
 
-            st.plotly_chart(
-                fig,
-                use_container_width=True,
-            )
+        pod_calc = calc[
+            calc["pod"] == selected_heatmap_pod
+        ].copy()
 
-            st.caption(
-                "※ 본 Heat-Load Density Map은 CFD 기반 실제 온도 Hot Spot이 아니라, "
-                "Rack별 liquid-side 설계 열부하의 공간적 분포를 나타냅니다."
-            )
+        pivot = pod_calc.pivot(
+            index="row",
+            columns="col",
+            values="liquid_load_kw",
+        )
 
-        else:
-            st.info(
-                "No row/col columns: thermal totals still work, "
-                "but spatial heat map is skipped."
-            )
+        fig = px.imshow(
+            pivot,
+            text_auto=".0f",
+            aspect="auto",
+            labels={"color": "Liquid kW"},
+            title=f"Pod {selected_heatmap_pod} · Liquid Heat-Load Map",
+            color_continuous_scale="Blues",
+        )
+
+        fig.update_xaxes(
+            side="top",
+            title="Column",
+        )
+
+        fig.update_yaxes(
+            title="Row",
+            autorange="reversed",
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+        )
+
+        st.caption(
+            "※ 선택한 Pod 내부의 Rack별 liquid-side 설계 열부하 분포입니다. "
+            "각 Pod의 row/col 좌표는 독립적인 local layout 좌표로 처리됩니다. "
+            "본 Map은 CFD 기반 실제 온도 Hot Spot을 의미하지 않습니다."
+        )
+
+    else:
+        st.info(
+            "No pod/row/col columns: thermal totals still work, "
+            "but spatial heat map is skipped."
+        )
 
     with right:
         st.markdown("#### Pod summary")
