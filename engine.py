@@ -583,9 +583,13 @@ def validate_racks(racks: pd.DataFrame) -> list[str]:
             errors.append("hcr must be between 0 and 1.")
     if {"row", "col"}.issubset(racks.columns):
         if racks[["row", "col"]].isna().any().any():
-            errors.append("row/col cannot be blank when layout columns are supplied.")
-        elif racks[["row", "col"]].duplicated().any():
-            errors.append("Two racks occupy the same row/col position.")
+            errors.append(
+                "row/col cannot be blank when layout columns are supplied."
+            )
+        elif racks[["pod", "row", "col"]].duplicated().any():
+            errors.append(
+                "Two racks occupy the same pod/row/col position."
+            )
     return errors
 
 
