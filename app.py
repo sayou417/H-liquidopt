@@ -2974,7 +2974,7 @@ with left:
             "✓ Phase 1 Engineer Review Approved"
         )
 
-elif phase == 2:
+    elif phase == 2:
     st.header("Phase 2 · TCS / CDU Candidate Review")
 
     st.caption(
