@@ -928,17 +928,14 @@ def build_cfd_boundary_conditions(
             * rack_pitch
         )
 
-        if topology_mode == "central":
-            pod_y_offset = (
-                rack_data[
-                    "pod_index"
-                ].astype(
-                    float
-                )
-                * pod_pitch
+        pod_y_offset = (
+            rack_data[
+                "pod_index"
+            ].astype(
+                float
             )
-        else:
-            pod_y_offset = 0.0
+            * pod_pitch
+        )
 
         rack_data[
             "y_m"
